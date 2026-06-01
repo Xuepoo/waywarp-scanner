@@ -15,61 +15,37 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build wheels for multiple platforms using cibuildwheel
+  # Build pure Python source distribution and wheel
   # ---------------------------------------------------------------------------
-  build-wheels:
-    name: Build wheels (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.22
-        env:
-          # Build for CPython 3.10-3.13
-          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
-          # Skip 32-bit builds and musllinux i686
-          CIBW_SKIP: "*-win32 *-manylinux_i686 *-musllinux_i686"
-          # Build for x86_64 and aarch64 on Linux
-          CIBW_ARCHS_LINUX: "x86_64 aarch64"
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
-          CIBW_ARCHS_WINDOWS: "AMD64"
-          # Use QEMU for aarch64 on Linux
-          CIBW_BEFORE_ALL_LINUX: "yum install -y epel-release || true"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ matrix.os }}
-          path: wheelhouse/*.whl
-
-  # ---------------------------------------------------------------------------
-  # Build source distribution
-  # ---------------------------------------------------------------------------
-  build-sdist:
-    name: Build sdist
+  build-package:
+    name: Build package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install build
-      - run: python -m build --sdist
-      - uses: actions/upload-artifact@v4
+
+      - name: Install build
+        run: pip install build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: sdist
-          path: dist/*.tar.gz
+          name: package-dist
+          path: dist/*
 
   # ---------------------------------------------------------------------------
   # GitHub Release
   # ---------------------------------------------------------------------------
   release:
     name: GitHub Release
-    needs: [build-wheels, build-sdist]
+    needs: [build-package]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,8 +53,8 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
+          name: package-dist
           path: dist
-          merge-multiple: true
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -93,7 +69,7 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-pypi:
     name: Publish to PyPI
-    needs: [build-wheels, build-sdist]
+    needs: [build-package]
     runs-on: ubuntu-latest
     # Trusted Publisher: configure in PyPI project settings
     # https://docs.pypi.org/trusted-publishers/
@@ -106,8 +82,8 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
+          name: package-dist
           path: dist
-          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

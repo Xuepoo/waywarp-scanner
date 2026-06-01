@@ -20,7 +20,7 @@ def test_get_model_dir_custom_xdg() -> None:
     """Verify customized XDG data home setting."""
     with patch.dict(os.environ, {"XDG_DATA_HOME": "/custom/xdg"}, clear=True):
         path = get_model_dir()
-        assert path == "/custom/xdg/waywarp/models"
+        assert path == os.path.join("/custom/xdg", "waywarp", "models")
 
 
 @patch("urllib.request.urlretrieve")
