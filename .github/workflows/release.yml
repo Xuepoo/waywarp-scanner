@@ -184,3 +184,23 @@ jobs:
           git add "bucket/${PROJECT_NAME}.json"
           git commit -m "chore: update ${PROJECT_NAME} to ${VERSION}"
           git push
+
+  # ---------------------------------------------------------------------------
+  # Update AUR package
+  # ---------------------------------------------------------------------------
+  publish-aur:
+    name: Update AUR Package
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v3
+        with:
+          pkgname: waywarp-scanner
+          pkgbuild: ./packaging/PKGBUILD
+          commit_username: Xuepoo
+          commit_email: xuepoo@users.noreply.github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "chore: update to ${{ github.ref_name }}"
