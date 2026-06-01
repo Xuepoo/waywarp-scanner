@@ -1,0 +1,203 @@
+# Release pipeline for Python CLI projects
+# Handles wheel building, GitHub Release, PyPI, Homebrew, and Scoop
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PROJECT_NAME: waywarp_scanner
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build wheels for multiple platforms using cibuildwheel
+  # ---------------------------------------------------------------------------
+  build-wheels:
+    name: Build wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22
+        env:
+          # Build for CPython 3.10-3.13
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+          # Skip 32-bit builds and musllinux i686
+          CIBW_SKIP: "*-win32 *-manylinux_i686 *-musllinux_i686"
+          # Build for x86_64 and aarch64 on Linux
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_WINDOWS: "AMD64"
+          # Use QEMU for aarch64 on Linux
+          CIBW_BEFORE_ALL_LINUX: "yum install -y epel-release || true"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  # ---------------------------------------------------------------------------
+  # Build source distribution
+  # ---------------------------------------------------------------------------
+  build-sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install build
+      - run: python -m build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # GitHub Release
+  # ---------------------------------------------------------------------------
+  release:
+    name: GitHub Release
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Publish to PyPI
+  # ---------------------------------------------------------------------------
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-latest
+    # Trusted Publisher: configure in PyPI project settings
+    # https://docs.pypi.org/trusted-publishers/
+    environment:
+      name: pypi
+      url: https://pypi.org/project/${{ env.PROJECT_NAME }}/
+    permissions:
+      id-token: write  # Required for trusted publishing
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # If not using trusted publisher, uncomment:
+        # with:
+        #   password: ${{ secrets.PYPI_API_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Update Homebrew tap
+  # ---------------------------------------------------------------------------
+  publish-homebrew:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP: Xuepoo/homebrew-tap
+    steps:
+      - name: Update Homebrew formula
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO_URL="https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/${{ env.HOMEBREW_TAP }}.git"
+
+          git clone "${REPO_URL}" tap || exit 1
+          cd tap || exit 1
+
+          cat > "Formula/${PROJECT_NAME}.rb" << EOF
+          class WaywarpScanner < Formula
+            include Language::Python::Virtualenv
+
+            desc "High-performance Wayland GUI layout scanner for AI Agents"
+            homepage "https://github.com/Xuepoo/${PROJECT_NAME}"
+            url "https://github.com/Xuepoo/${PROJECT_NAME}/releases/download/v${VERSION}/${PROJECT_NAME}-${VERSION}.tar.gz"
+            license "MIT"
+
+            depends_on "python@3.13"
+
+            def install
+              virtualenv_install_with_resources
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/${PROJECT_NAME} --version")
+            end
+          end
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "Formula/${PROJECT_NAME}.rb"
+          git commit -m "chore: update ${PROJECT_NAME} to ${VERSION}"
+          git push
+
+  # ---------------------------------------------------------------------------
+  # Update Scoop bucket
+  # ---------------------------------------------------------------------------
+  publish-scoop:
+    name: Update Scoop Bucket
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      SCOOP_BUCKET: Xuepoo/scoop-bucket
+    steps:
+      - name: Update Scoop manifest
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO_URL="https://x-access-token:${{ secrets.SCOOP_BUCKET_TOKEN }}@github.com/${{ env.SCOOP_BUCKET }}.git"
+
+          git clone "${REPO_URL}" bucket || exit 1
+          cd bucket || exit 1
+
+          cat > "bucket/${PROJECT_NAME}.json" << EOF
+          {
+            "version": "${VERSION}",
+            "description": "High-performance Wayland GUI layout scanner for AI Agents",
+            "homepage": "https://github.com/Xuepoo/${PROJECT_NAME}",
+            "license": "MIT",
+            "url": "https://github.com/Xuepoo/${PROJECT_NAME}/releases/download/v${VERSION}/${PROJECT_NAME}-${VERSION}-py3-none-any.whl",
+            "pre_install": [
+              "if (!(Get-Command python -ErrorAction SilentlyContinue)) { throw 'Python 3 is required.' }",
+              "python -m pip install \$dir\\\\${PROJECT_NAME}-${VERSION}-py3-none-any.whl --target \$dir"
+            ],
+            "bin": "${PROJECT_NAME}.exe",
+            "checkver": {
+              "github": "https://github.com/Xuepoo/${PROJECT_NAME}"
+            }
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "bucket/${PROJECT_NAME}.json"
+          git commit -m "chore: update ${PROJECT_NAME} to ${VERSION}"
+          git push

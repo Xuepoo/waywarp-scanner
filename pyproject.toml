@@ -1,0 +1,119 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "waywarp_scanner"
+version = "0.1.0"
+description = "High-performance Wayland GUI layout scanner for AI Agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Xuepoo", email = "xuepoo@users.noreply.github.com" }]
+keywords = []
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "easyocr>=1.7.2",
+  "torch",
+  "ultralytics>=8.4.60",
+  "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=6.0",
+  "mypy>=1.14",
+  "ruff>=0.8",
+  "bandit>=1.8",
+  "pre-commit>=4.0",
+]
+
+[project.scripts]
+waywarp-scanner = "waywarp_scanner.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/Xuepoo/waywarp_scanner"
+Repository = "https://github.com/Xuepoo/waywarp_scanner"
+Issues = "https://github.com/Xuepoo/waywarp_scanner/issues"
+Changelog = "https://github.com/Xuepoo/waywarp_scanner/blob/main/CHANGELOG.md"
+
+# --------------------------------------------------------------------------
+# Ruff — linter + formatter
+# --------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "S",   # flake8-bandit
+  "A",   # flake8-builtins
+  "C4",  # flake8-comprehensions
+  "DTZ", # flake8-datetimez
+  "T20", # flake8-print
+  "RUF", # ruff-specific
+]
+ignore = [
+  "S101",  # assert used — fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "T20"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# --------------------------------------------------------------------------
+# Mypy — type checking
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+# --------------------------------------------------------------------------
+# Pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+# --------------------------------------------------------------------------
+# Coverage
+# --------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["waywarp_scanner"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 80
+
+# --------------------------------------------------------------------------
+# Bandit — security
+# --------------------------------------------------------------------------
+[tool.bandit]
+exclude_dirs = ["tests"]
