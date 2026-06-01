@@ -21,7 +21,7 @@ By using `waywarp-scanner`, AI agents can bypass sending large raw screenshots t
 ### 1. Install CLI Tool via PyPI
 Install the layout scanner package locally using `uv` (recommended) or `pip`:
 ```bash
-uv pip install waywarp-scanner
+uv tool install waywarp-scanner
 # or
 pip install waywarp-scanner
 ```
