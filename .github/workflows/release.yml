@@ -102,9 +102,12 @@ jobs:
       HOMEBREW_TAP: Xuepoo/homebrew-tap
     steps:
       - name: Update Homebrew formula
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          REPO_URL="https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/${{ env.HOMEBREW_TAP }}.git"
+          REPO_URL="https://x-access-token:${{ env.HOMEBREW_TAP_TOKEN }}@github.com/${{ env.HOMEBREW_TAP }}.git"
 
           git clone "${REPO_URL}" tap || exit 1
           cd tap || exit 1
@@ -147,9 +150,12 @@ jobs:
       SCOOP_BUCKET: Xuepoo/scoop-bucket
     steps:
       - name: Update Scoop manifest
+        if: env.SCOOP_BUCKET_TOKEN != ''
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          REPO_URL="https://x-access-token:${{ secrets.SCOOP_BUCKET_TOKEN }}@github.com/${{ env.SCOOP_BUCKET }}.git"
+          REPO_URL="https://x-access-token:${{ env.SCOOP_BUCKET_TOKEN }}@github.com/${{ env.SCOOP_BUCKET }}.git"
 
           git clone "${REPO_URL}" bucket || exit 1
           cd bucket || exit 1
