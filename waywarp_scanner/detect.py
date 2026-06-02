@@ -2,8 +2,8 @@
 
 from typing import Any
 
-import easyocr
-from ultralytics import YOLO
+import easyocr  # type: ignore
+from ultralytics import YOLO  # type: ignore
 
 from waywarp_scanner.device import get_optimal_device
 
@@ -144,7 +144,7 @@ def run_yolo(image_path: str, model_path: str) -> list[dict[str, Any]]:
     for result in results:
         if not hasattr(result, "boxes") or result.boxes is None:
             continue
-        for box in result.boxes:
+        for box in result.boxes:  # type: ignore[attr-defined]
             # Extract xyxy coordinates
             xyxy_tensor = box.xyxy[0]
             xyxy = xyxy_tensor.tolist() if hasattr(xyxy_tensor, "tolist") else list(xyxy_tensor)
