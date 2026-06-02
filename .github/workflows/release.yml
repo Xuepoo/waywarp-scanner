@@ -138,7 +138,7 @@ jobs:
           git add "Formula/${PROJECT_NAME}.rb"
           if ! git diff --quiet || ! git diff --staged --quiet; then
             git commit -m "chore: update ${PROJECT_NAME} to ${VERSION}"
-            git push
+            git push "${REPO_URL}" main
           fi
 
   # ---------------------------------------------------------------------------
@@ -184,7 +184,7 @@ jobs:
           git add "bucket/${PROJECT_NAME}.json"
           if ! git diff --quiet || ! git diff --staged --quiet; then
             git commit -m "chore: update ${PROJECT_NAME} to ${VERSION}"
-            git push
+            git push "${REPO_URL}" main
           fi
 
   # ---------------------------------------------------------------------------
