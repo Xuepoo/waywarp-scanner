@@ -28,7 +28,7 @@ except Exception:
     try:
         __version__ = importlib.metadata.version("waywarp_scanner")
     except Exception:
-        __version__ = "0.1.4"
+        __version__ = "0.1.5"
 
 
 @click.group()
