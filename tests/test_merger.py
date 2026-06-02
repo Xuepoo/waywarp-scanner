@@ -191,3 +191,38 @@ def test_schema_compatibility() -> None:
     assert elem["text"] == "Click"
     assert elem["monitor_index"] == 2
     assert elem["confidence"] == 0.88
+
+
+def test_bounds_clamping() -> None:
+    """Verify that logical bounding boxes are clamped correctly inside screen resolution."""
+    yolo_elements = [
+        {
+            "type": "button",
+            "bbox": [1000.0, 800.0, 1500.0, 1000.0],
+            "center": [1750.0, 1300.0],
+        }
+    ]
+
+    ocr_elements: list[dict[str, Any]] = []
+
+    # physical_size = (1920, 1080), scale = 1.0 -> logical screen width=1920, height=1080
+    result = merge_elements(
+        yolo_elements,
+        ocr_elements,
+        physical_size=(1920, 1080),
+    )
+
+    assert len(result) == 1
+    elem = result[0]
+
+    # Expected clamped bbox:
+    # x = 1000 (valid)
+    # y = 800 (valid)
+    # w = min(1500, 1920 - 1000) = 920
+    # h = min(1000, 1080 - 800) = 280
+    assert elem["bbox"] == [1000.0, 800.0, 920.0, 280.0]
+
+    # Expected clamped center:
+    # cx = 1000.0 + 920.0 / 2 = 1460.0
+    # cy = 800.0 + 280.0 / 2 = 940.0
+    assert elem["center"] == [1460.0, 940.0]

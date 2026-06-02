@@ -99,3 +99,43 @@ def test_run_yolo_no_boxes(mock_yolo_cls: MagicMock, mock_get_device: MagicMock)
     results = run_yolo("dummy_path.png", "yolov8n.pt")
 
     assert len(results) == 0
+
+
+@patch("waywarp_scanner.detect.get_optimal_device")
+@patch("waywarp_scanner.detect.easyocr.Reader")
+def test_run_ocr_filters_noise(mock_reader_cls: MagicMock, mock_get_device: MagicMock) -> None:
+    """Verify run_ocr filters out low confidence detections and symbol-only short noise."""
+    mock_get_device.return_value = "cpu"
+    mock_reader = MagicMock()
+    mock_reader.readtext.return_value = [
+        ([[10, 20], [110, 20], [110, 40], [10, 40]], "Submit", 0.95),  # OK
+        ([[50, 60], [70, 60], [70, 80], [50, 80]], "  Cancel  ", 0.88),  # OK, will be stripped
+        ([[20, 20], [30, 20], [30, 30], [20, 30]], "|", 0.99),  # Symbol-only, discard
+        ([[40, 40], [50, 40], [50, 50], [40, 50]], "a", 0.15),  # Low confidence, discard
+        ([[80, 80], [90, 80], [90, 90], [80, 90]], ".)", 0.80),  # Symbol-only, discard
+    ]
+    mock_reader_cls.return_value = mock_reader
+
+    results = run_ocr("dummy_path.png")
+
+    assert len(results) == 2
+    assert results[0]["text"] == "Submit"
+    assert results[1]["text"] == "Cancel"
+
+
+@patch("waywarp_scanner.detect.get_optimal_device")
+@patch("waywarp_scanner.detect.YOLO")
+def test_run_yolo_coco_fallback(mock_yolo_cls: MagicMock, mock_get_device: MagicMock) -> None:
+    """Verify run_yolo discards predictions if the model is a generic COCO model."""
+    mock_get_device.return_value = "cpu"
+    mock_model = MagicMock()
+    # Mocking standard COCO names dictionary
+    mock_model.names = {0: "person", 63: "laptop"}
+
+    mock_yolo_cls.return_value = mock_model
+
+    results = run_yolo("dummy_path.png", "yolov8n.pt")
+
+    # Must immediately return empty list and skip predicting to fallback gracefully
+    assert results == []
+    assert mock_model.predict.call_count == 0
