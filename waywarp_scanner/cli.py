@@ -1,5 +1,6 @@
 """CLI entry point and command definition for waywarp-scanner."""
 
+import importlib.metadata
 import json
 import os
 import tempfile
@@ -21,7 +22,17 @@ def get_model_dir() -> str:
     return os.path.expanduser("~/.local/share/waywarp/models")
 
 
+try:
+    __version__ = importlib.metadata.version("waywarp-scanner")
+except Exception:
+    try:
+        __version__ = importlib.metadata.version("waywarp_scanner")
+    except Exception:
+        __version__ = "0.1.4"
+
+
 @click.group()
+@click.version_option(version=__version__)
 def cli() -> None:
     """Waywarp Agent Visual Scanner CLI."""
     pass

@@ -23,6 +23,14 @@ def test_get_model_dir_custom_xdg() -> None:
         assert path == os.path.join("/custom/xdg", "waywarp", "models")
 
 
+def test_cli_version_option() -> None:
+    """Verify waywarp-scanner --version output."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "version" in result.output
+
+
 @patch("urllib.request.urlretrieve")
 @patch("zipfile.ZipFile")
 @patch("os.path.exists", return_value=False)
