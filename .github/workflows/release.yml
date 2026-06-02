@@ -104,7 +104,7 @@ jobs:
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - name: Update Homebrew formula
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        if: env.HOMEBREW_TAP_TOKEN != ''
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           REPO_URL="https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${{ env.HOMEBREW_TAP }}.git"
@@ -153,7 +153,7 @@ jobs:
       SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
     steps:
       - name: Update Scoop manifest
-        if: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        if: env.SCOOP_BUCKET_TOKEN != ''
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           REPO_URL="https://x-access-token:${SCOOP_BUCKET_TOKEN}@github.com/${{ env.SCOOP_BUCKET }}.git"
