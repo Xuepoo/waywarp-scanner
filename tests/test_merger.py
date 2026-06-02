@@ -226,3 +226,27 @@ def test_bounds_clamping() -> None:
     # cx = 1000.0 + 920.0 / 2 = 1460.0
     # cy = 800.0 + 280.0 / 2 = 940.0
     assert elem["center"] == [1460.0, 940.0]
+
+
+def test_double_safety_center_clamping() -> None:
+    """Verify that final center coordinates are clamped for absolute safety."""
+    yolo_elements = [
+        {
+            "type": "button",
+            "bbox": [2000.0, 2000.0, 500.0, 500.0],
+            "center": [2250.0, 2250.0],  # Artificially out of bounds
+        }
+    ]
+    ocr_elements: list[dict[str, Any]] = []
+
+    # screen width=1600, height=1000
+    result = merge_elements(
+        yolo_elements,
+        ocr_elements,
+        physical_size=(1600, 1000),
+        monitor_scales=None,
+    )
+
+    assert len(result) == 1
+    # Center should be strictly clamped to logical screen boundaries [1600.0, 1000.0]
+    assert result[0]["center"] == [1600.0, 1000.0]

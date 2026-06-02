@@ -3,9 +3,11 @@
 from typing import Any
 
 import easyocr  # type: ignore
-from ultralytics import YOLO  # type: ignore
 
 from waywarp_scanner.device import get_optimal_device
+
+# Lazy import placeholder for MyPy and tests patching (Issue #36)
+YOLO: Any = None
 
 
 def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any]]:
@@ -42,18 +44,18 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
     try:
         img = Image.open(image_path)
         orig_w, orig_h = img.size
-        if orig_w > 1280:
-            ratio = 1280.0 / orig_w
+        if orig_w > 960:
+            ratio = 960.0 / orig_w
             target_h = int(orig_h * ratio)
             # Resize using BILINEAR for speed and preservation of text edge definitions
-            img_input = img.resize((1280, target_h), Image.Resampling.BILINEAR)
+            img_input = img.resize((960, target_h), Image.Resampling.BILINEAR)
         else:
             img_input = img
     except Exception:
         # Fallback to loading original file path directly in case of open failures
         img_input = image_path
 
-    results = reader.readtext(img_input)
+    results = reader.readtext(img_input, batch_size=4)
 
     import re
 
@@ -119,15 +121,21 @@ def run_yolo(image_path: str, model_path: str) -> list[dict[str, Any]]:
             "confidence": float
         }
     """
+    global YOLO
     import os
     import unittest.mock
 
     # Bypass instantiation of default COCO model in production to avoid
-    # heavy ultralytics imports (Issue #32)
-    # Standard unit tests mock YOLO, so we check if YOLO class is mocked
+    # heavy ultralytics imports (Issue #32 & #36)
     is_mock = isinstance(YOLO, unittest.mock.Mock)
     if not is_mock and os.path.basename(model_path) == "yolov8n.pt":
         return []
+
+    # Lazily import YOLO in production if we actually need a custom model
+    if not is_mock and YOLO is None:
+        from ultralytics import YOLO as ULTRALYTICS_YOLO  # type: ignore
+
+        YOLO = ULTRALYTICS_YOLO
 
     device = get_optimal_device()
     model = YOLO(model_path)

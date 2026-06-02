@@ -22,7 +22,7 @@ def test_run_ocr_cuda(mock_reader_cls: MagicMock, mock_get_device: MagicMock) ->
     mock_reader_cls.assert_called_once_with(
         ["en"], gpu=True, model_storage_directory="/dummy/models"
     )
-    mock_reader.readtext.assert_called_once_with("dummy_path.png")
+    mock_reader.readtext.assert_called_once_with("dummy_path.png", batch_size=4)
 
     assert len(results) == 1
     det = results[0]
@@ -155,14 +155,14 @@ def test_run_ocr_downscale_restore(
 
     # Mock PIL Image
     mock_img = MagicMock()
-    mock_img.size = (2560, 1600)  # Width > 1280, triggers ratio = 1280.0 / 2560.0 = 0.5
+    mock_img.size = (1920, 1200)  # Width > 960, triggers ratio = 960.0 / 1920.0 = 0.5
 
     mock_resized_img = MagicMock()
     mock_img.resize.return_value = mock_resized_img
     mock_image_open.return_value = mock_img
 
     mock_reader = MagicMock()
-    # EasyOCR results are on the resized image (W=1280, H=800)
+    # EasyOCR results are on the resized image (W=960, H=600)
     # Give it a word at [50, 100, 100, 50] on resized image (logical center = [100.0, 125.0])
     mock_reader.readtext.return_value = [
         ([[50, 100], [150, 100], [150, 150], [50, 150]], "Accelerate", 0.96)
@@ -176,12 +176,12 @@ def test_run_ocr_downscale_restore(
     # Bilinear resampling is BILINEAR
     from PIL import Image
 
-    mock_img.resize.assert_called_once_with((1280, 800), Image.Resampling.BILINEAR)
+    mock_img.resize.assert_called_once_with((960, 600), Image.Resampling.BILINEAR)
 
     # EasyOCR reader should have been fed with the resized image
-    mock_reader.readtext.assert_called_once_with(mock_resized_img)
+    mock_reader.readtext.assert_called_once_with(mock_resized_img, batch_size=4)
 
-    # Coordinates must be successfully restored back to 2560x1600 space
+    # Coordinates must be successfully restored back to 1920x1200 space
     # by multiplying by 2.0 (1.0 / 0.5)
     assert len(results) == 1
     det = results[0]

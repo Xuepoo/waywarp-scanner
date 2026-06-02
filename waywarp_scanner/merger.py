@@ -154,6 +154,13 @@ def merge_elements(
     # 6. Assign sequential IDs starting at 0
     final_elements: list[dict[str, Any]] = []
     for idx, elem in enumerate(merged_elements):
+        # Double clamp center coordinates to screen logical bounds for absolute safety (Issue #35)
+        cx, cy = elem["center"]
+        elem["center"] = [
+            max(0.0, min(cx, logical_width)),
+            max(0.0, min(cy, logical_height)),
+        ]
+
         new_elem = {"id": idx}
         new_elem.update(elem)
         final_elements.append(new_elem)
