@@ -11,6 +11,7 @@ def merge_elements(
     monitor_scales: dict[str, float] | None = None,
     monitor_name: str | None = None,
     monitor_index: int = 0,
+    physical_size: tuple[int, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Merge YOLO-detected widgets with OCR-detected text elements.
 
@@ -24,6 +25,7 @@ def merge_elements(
         monitor_scales: Optional dictionary mapping monitor names to their scale factors.
         monitor_name: Optional name of the monitor the screenshot was captured on.
         monitor_index: Optional integer index of the monitor (defaults to 0).
+        physical_size: Optional tuple (width, height) representing the physical screen size.
 
     Returns:
         A list of merged elements ready for JSON serialization, where each element has keys:
@@ -38,6 +40,15 @@ def merge_elements(
     if monitor_scales is not None and monitor_name is not None:
         scale_factor = monitor_scales.get(monitor_name, 1.0)
 
+    # Calculate logical screen dimensions for clamping bounds
+    if physical_size is not None:
+        logical_width = physical_size[0] / scale_factor
+        logical_height = physical_size[1] / scale_factor
+    else:
+        # Fallback to standard 1920x1080 logical sizes if physical size isn't provided
+        logical_width = 1920.0
+        logical_height = 1080.0
+
     # 1. Convert YOLO elements to logical coordinates
     logical_yolo = []
     for elem in yolo_elements:
@@ -46,6 +57,14 @@ def merge_elements(
         cx_l, cy_l = to_logical_coords(cx, cy, scale_factor)
         x_l, y_l = to_logical_coords(x, y, scale_factor)
         w_l, h_l = to_logical_coords(w, h, scale_factor)
+
+        # Clamp logical coordinates to screen boundaries (Issue #30)
+        x_l = max(0.0, min(x_l, logical_width))
+        y_l = max(0.0, min(y_l, logical_height))
+        w_l = max(0.0, min(w_l, logical_width - x_l))
+        h_l = max(0.0, min(h_l, logical_height - y_l))
+        cx_l = x_l + w_l / 2.0
+        cy_l = y_l + h_l / 2.0
 
         new_elem = elem.copy()
         new_elem["center"] = [cx_l, cy_l]
@@ -60,6 +79,14 @@ def merge_elements(
         cx_l, cy_l = to_logical_coords(cx, cy, scale_factor)
         x_l, y_l = to_logical_coords(x, y, scale_factor)
         w_l, h_l = to_logical_coords(w, h, scale_factor)
+
+        # Clamp logical coordinates to screen boundaries (Issue #30)
+        x_l = max(0.0, min(x_l, logical_width))
+        y_l = max(0.0, min(y_l, logical_height))
+        w_l = max(0.0, min(w_l, logical_width - x_l))
+        h_l = max(0.0, min(h_l, logical_height - y_l))
+        cx_l = x_l + w_l / 2.0
+        cy_l = y_l + h_l / 2.0
 
         new_elem = elem.copy()
         new_elem["center"] = [cx_l, cy_l]

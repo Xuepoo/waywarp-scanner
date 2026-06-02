@@ -111,9 +111,37 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         ocr_res = run_ocr(image_path, m_dir)
         yolo_res = run_yolo(image_path, yolo_pt)
 
-        # Merge
+        # Get actual screen physical dimensions (Issue #27)
+        phys_width, phys_height = 1920, 1080
+        from PIL import Image
+
+        try:
+            with Image.open(image_path) as img:
+                phys_width, phys_height = img.size
+        except (FileNotFoundError, OSError, ValueError):
+            phys_width, phys_height = 1920, 1080
+
+        # Resolve scale factor
         scales = get_monitor_scales()
-        merged = merge_elements(yolo_res, ocr_res, scales, monitor, monitor_index=monitor_index)
+        scale_factor = 1.0
+        if monitor is not None:
+            scale_factor = scales.get(monitor, 1.0)
+        elif scales:
+            # Fallback to the scale of the first monitor found
+            scale_factor = next(iter(scales.values()), 1.0)
+
+        logical_width = int(phys_width / scale_factor)
+        logical_height = int(phys_height / scale_factor)
+
+        # Merge
+        merged = merge_elements(
+            yolo_res,
+            ocr_res,
+            scales,
+            monitor,
+            monitor_index=monitor_index,
+            physical_size=(phys_width, phys_height),
+        )
 
         # Clean up screenshot safely
         if os.path.exists(image_path):
@@ -123,8 +151,8 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         click.echo(
             json.dumps(
                 {
-                    "screen_width": 1920,
-                    "screen_height": 1080,
+                    "screen_width": logical_width,
+                    "screen_height": logical_height,
                     "elements": merged,
                 },
                 indent=2,

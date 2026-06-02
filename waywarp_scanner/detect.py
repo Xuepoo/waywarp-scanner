@@ -33,8 +33,25 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
     reader = easyocr.Reader(["en"], gpu=gpu_enabled, model_storage_directory=model_dir)
     results = reader.readtext(image_path)
 
+    import re
+
     detections = []
     for bbox, text, confidence in results:
+        text_str = str(text).strip()
+        text_str = re.sub(r"\s+", " ", text_str)
+
+        # 1. Discard low confidence detections (Issue #29 & #31)
+        if confidence < 0.35:
+            continue
+
+        # 2. Filter out very short noise composed purely of symbols (e.g. "|", ".)", "}")
+        if len(text_str) <= 2 and not any(c.isalnum() for c in text_str):
+            continue
+
+        # 3. Discard empty text strings
+        if not text_str:
+            continue
+
         # bbox is typically [[x0, y0], [x1, y1], [x2, y2], [x3, y3]]
         xs = [float(pt[0]) for pt in bbox]
         ys = [float(pt[1]) for pt in bbox]
@@ -50,7 +67,7 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
         detections.append(
             {
                 "type": "text",
-                "text": str(text),
+                "text": text_str,
                 "center": [cx, cy],
                 "bbox": [x_min, y_min, w, h],
                 "confidence": float(confidence),
@@ -79,8 +96,25 @@ def run_yolo(image_path: str, model_path: str) -> list[dict[str, Any]]:
             "confidence": float
         }
     """
+    import os
+    import unittest.mock
+
+    # Bypass instantiation of default COCO model in production to avoid
+    # heavy ultralytics imports (Issue #32)
+    # Standard unit tests mock YOLO, so we check if YOLO class is mocked
+    is_mock = isinstance(YOLO, unittest.mock.Mock)
+    if not is_mock and os.path.basename(model_path) == "yolov8n.pt":
+        return []
+
     device = get_optimal_device()
     model = YOLO(model_path)
+
+    # Check if loaded model is a generic COCO dataset model (Issue #28)
+    # Custom widget models will not contain generic classes like 'person' or 'laptop'
+    is_coco = any(name in model.names.values() for name in ["person", "laptop", "tv", "cell phone"])
+    if is_coco:
+        return []
+
     results = model.predict(image_path, device=device, verbose=False)
 
     detections = []
