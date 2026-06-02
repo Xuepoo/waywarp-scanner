@@ -142,11 +142,13 @@ def test_run_yolo_coco_fallback(mock_yolo_cls: MagicMock, mock_get_device: Magic
 
 
 @patch("waywarp_scanner.detect.get_optimal_device")
+@patch("waywarp_scanner.detect.np.array")
 @patch("waywarp_scanner.detect.easyocr.Reader")
 @patch("PIL.Image.open")
 def test_run_ocr_downscale_restore(
     mock_image_open: MagicMock,
     mock_reader_cls: MagicMock,
+    mock_np_array: MagicMock,
     mock_get_device: MagicMock,
 ) -> None:
     """Verify that run_ocr downscales high-res screenshots and correctly
@@ -160,6 +162,10 @@ def test_run_ocr_downscale_restore(
     mock_resized_img = MagicMock()
     mock_img.resize.return_value = mock_resized_img
     mock_image_open.return_value = mock_img
+
+    # np.array(resized_img) returns a sentinel numpy array
+    sentinel_array = MagicMock(name="sentinel_numpy_array")
+    mock_np_array.return_value = sentinel_array
 
     mock_reader = MagicMock()
     # EasyOCR results are on the resized image (W=960, H=600)
@@ -178,8 +184,11 @@ def test_run_ocr_downscale_restore(
 
     mock_img.resize.assert_called_once_with((960, 600), Image.Resampling.BILINEAR)
 
-    # EasyOCR reader should have been fed with the resized image
-    mock_reader.readtext.assert_called_once_with(mock_resized_img, batch_size=4)
+    # np.array should have been called with the resized PIL Image
+    mock_np_array.assert_called_once_with(mock_resized_img)
+
+    # EasyOCR reader should have been fed with the numpy array, not PIL Image (#38)
+    mock_reader.readtext.assert_called_once_with(sentinel_array, batch_size=4)
 
     # Coordinates must be successfully restored back to 1920x1200 space
     # by multiplying by 2.0 (1.0 / 0.5)

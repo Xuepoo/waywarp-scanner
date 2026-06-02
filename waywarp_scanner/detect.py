@@ -3,6 +3,8 @@
 from typing import Any
 
 import easyocr  # type: ignore
+import numpy as np
+from PIL import Image
 
 from waywarp_scanner.device import get_optimal_device
 
@@ -35,9 +37,7 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
     reader = easyocr.Reader(["en"], gpu=gpu_enabled, model_storage_directory=model_dir)
 
     # Perform PIL downscaling optimization for high-resolution images (Issue #32)
-    from typing import Any
-
-    from PIL import Image
+    # EasyOCR accepts: str (file path), bytes, or numpy.ndarray — NOT PIL Image (#38)
 
     ratio = 1.0
     img_input: Any = image_path
@@ -48,9 +48,11 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
             ratio = 960.0 / orig_w
             target_h = int(orig_h * ratio)
             # Resize using BILINEAR for speed and preservation of text edge definitions
-            img_input = img.resize((960, target_h), Image.Resampling.BILINEAR)
+            resized = img.resize((960, target_h), Image.Resampling.BILINEAR)
+            # Convert PIL Image to numpy array for EasyOCR compatibility (#38)
+            img_input = np.array(resized)
         else:
-            img_input = img
+            img_input = np.array(img)
     except Exception:
         # Fallback to loading original file path directly in case of open failures
         img_input = image_path

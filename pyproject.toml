@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "waywarp_scanner"
-version = "0.1.3"
+version = "0.1.4"
 description = "High-performance Wayland GUI layout scanner for AI Agents"
 readme = "README.md"
 license = "MIT"
