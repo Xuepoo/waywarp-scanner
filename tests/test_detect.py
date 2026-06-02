@@ -139,3 +139,55 @@ def test_run_yolo_coco_fallback(mock_yolo_cls: MagicMock, mock_get_device: Magic
     # Must immediately return empty list and skip predicting to fallback gracefully
     assert results == []
     assert mock_model.predict.call_count == 0
+
+
+@patch("waywarp_scanner.detect.get_optimal_device")
+@patch("waywarp_scanner.detect.easyocr.Reader")
+@patch("PIL.Image.open")
+def test_run_ocr_downscale_restore(
+    mock_image_open: MagicMock,
+    mock_reader_cls: MagicMock,
+    mock_get_device: MagicMock,
+) -> None:
+    """Verify that run_ocr downscales high-res screenshots and correctly
+    restores original coords."""
+    mock_get_device.return_value = "cpu"
+
+    # Mock PIL Image
+    mock_img = MagicMock()
+    mock_img.size = (2560, 1600)  # Width > 1280, triggers ratio = 1280.0 / 2560.0 = 0.5
+
+    mock_resized_img = MagicMock()
+    mock_img.resize.return_value = mock_resized_img
+    mock_image_open.return_value = mock_img
+
+    mock_reader = MagicMock()
+    # EasyOCR results are on the resized image (W=1280, H=800)
+    # Give it a word at [50, 100, 100, 50] on resized image (logical center = [100.0, 125.0])
+    mock_reader.readtext.return_value = [
+        ([[50, 100], [150, 100], [150, 150], [50, 150]], "Accelerate", 0.96)
+    ]
+    mock_reader_cls.return_value = mock_reader
+
+    results = run_ocr("dummy_highres.png")
+
+    # Assert PIL.Image.open and resize were called
+    mock_image_open.assert_called_once_with("dummy_highres.png")
+    # Bilinear resampling is BILINEAR
+    from PIL import Image
+
+    mock_img.resize.assert_called_once_with((1280, 800), Image.Resampling.BILINEAR)
+
+    # EasyOCR reader should have been fed with the resized image
+    mock_reader.readtext.assert_called_once_with(mock_resized_img)
+
+    # Coordinates must be successfully restored back to 2560x1600 space
+    # by multiplying by 2.0 (1.0 / 0.5)
+    assert len(results) == 1
+    det = results[0]
+    assert det["text"] == "Accelerate"
+    # Resized bbox is [50.0, 100.0, 100.0, 50.0]
+    # Restored bbox should be [100.0, 200.0, 200.0, 100.0]
+    assert det["bbox"] == [100.0, 200.0, 200.0, 100.0]
+    # Restored center should be [200.0, 250.0]
+    assert det["center"] == [200.0, 250.0]

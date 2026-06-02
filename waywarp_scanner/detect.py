@@ -2,8 +2,8 @@
 
 from typing import Any
 
-import easyocr  # type: ignore
-from ultralytics import YOLO  # type: ignore
+import easyocr
+from ultralytics import YOLO
 
 from waywarp_scanner.device import get_optimal_device
 
@@ -31,7 +31,29 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
     gpu_enabled = device in ("cuda", "mps")
 
     reader = easyocr.Reader(["en"], gpu=gpu_enabled, model_storage_directory=model_dir)
-    results = reader.readtext(image_path)
+
+    # Perform PIL downscaling optimization for high-resolution images (Issue #32)
+    from typing import Any
+
+    from PIL import Image
+
+    ratio = 1.0
+    img_input: Any = image_path
+    try:
+        img = Image.open(image_path)
+        orig_w, orig_h = img.size
+        if orig_w > 1280:
+            ratio = 1280.0 / orig_w
+            target_h = int(orig_h * ratio)
+            # Resize using BILINEAR for speed and preservation of text edge definitions
+            img_input = img.resize((1280, target_h), Image.Resampling.BILINEAR)
+        else:
+            img_input = img
+    except Exception:
+        # Fallback to loading original file path directly in case of open failures
+        img_input = image_path
+
+    results = reader.readtext(img_input)
 
     import re
 
@@ -53,8 +75,9 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
             continue
 
         # bbox is typically [[x0, y0], [x1, y1], [x2, y2], [x3, y3]]
-        xs = [float(pt[0]) for pt in bbox]
-        ys = [float(pt[1]) for pt in bbox]
+        # Restore original coordinates by dividing by target resize ratio
+        xs = [float(pt[0]) / ratio for pt in bbox]
+        ys = [float(pt[1]) / ratio for pt in bbox]
 
         x_min = min(xs)
         y_min = min(ys)
@@ -121,7 +144,7 @@ def run_yolo(image_path: str, model_path: str) -> list[dict[str, Any]]:
     for result in results:
         if not hasattr(result, "boxes") or result.boxes is None:
             continue
-        for box in result.boxes:  # type: ignore[attr-defined]
+        for box in result.boxes:
             # Extract xyxy coordinates
             xyxy_tensor = box.xyxy[0]
             xyxy = xyxy_tensor.tolist() if hasattr(xyxy_tensor, "tolist") else list(xyxy_tensor)

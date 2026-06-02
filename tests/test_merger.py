@@ -129,14 +129,14 @@ def test_default_scaling_missing_args() -> None:
     result = merge_elements(yolo_elements, ocr_elements, monitor_scales=None, monitor_name="eDP-1")
     assert result[0]["bbox"] == [10.0, 20.0, 30.0, 40.0]
 
-    # Case 2: monitor_name is None
+    # Case 2: monitor_name is None (should fallback to the first scale: 2.0)
     result = merge_elements(
         yolo_elements,
         ocr_elements,
         monitor_scales={"eDP-1": 2.0},
         monitor_name=None,
     )
-    assert result[0]["bbox"] == [10.0, 20.0, 30.0, 40.0]
+    assert result[0]["bbox"] == [5.0, 10.0, 15.0, 20.0]
 
     # Case 3: monitor_name is not in monitor_scales
     result = merge_elements(

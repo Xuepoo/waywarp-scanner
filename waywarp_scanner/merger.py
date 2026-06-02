@@ -37,8 +37,11 @@ def merge_elements(
         - monitor_index: Index of the monitor the element resides on
     """
     scale_factor = 1.0
-    if monitor_scales is not None and monitor_name is not None:
-        scale_factor = monitor_scales.get(monitor_name, 1.0)
+    if monitor_scales is not None:
+        if monitor_name is not None:
+            scale_factor = monitor_scales.get(monitor_name, 1.0)
+        elif monitor_scales:
+            scale_factor = next(iter(monitor_scales.values()), 1.0)
 
     # Calculate logical screen dimensions for clamping bounds
     if physical_size is not None:
