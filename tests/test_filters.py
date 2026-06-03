@@ -158,3 +158,86 @@ def test_filter_operators_in_code() -> None:
     ]
     result = filter_noise(detections)
     assert len(result) == 0
+
+
+def test_filter_new_noise_patterns() -> None:
+    """Verify that file path slashes, unmatched brackets, colons in middle of word,
+    and underscores are successfully filtered out."""
+    detections = [
+        {
+            "text": "src/dto",
+            "confidence": 0.90,
+            "center": [100, 100],
+            "bbox": [50, 90, 80, 20],
+        },
+        {
+            "text": "Serialize) ]",
+            "confidence": 0.88,
+            "center": [100, 120],
+            "bbox": [50, 110, 80, 20],
+        },
+        {
+            "text": "path: String",
+            "confidence": 0.85,
+            "center": [100, 140],
+            "bbox": [50, 130, 80, 20],
+        },
+        {
+            "text": "install_command",
+            "confidence": 0.92,
+            "center": [100, 160],
+            "bbox": [50, 150, 80, 20],
+        },
+        {
+            "text": "https://github.com",
+            "confidence": 0.95,
+            "center": [100, 180],
+            "bbox": [50, 170, 100, 20],
+        },
+        {
+            "text": "12:34",
+            "confidence": 0.90,
+            "center": [100, 200],
+            "bbox": [50, 190, 40, 20],
+        },
+        {
+            "text": "Username:",
+            "confidence": 0.90,
+            "center": [100, 220],
+            "bbox": [50, 210, 60, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 3
+    texts = [d["text"] for d in result]
+    assert "https://github.com" in texts
+    assert "12:34" in texts
+    assert "Username:" in texts
+
+
+def test_filter_duplicate_suppression() -> None:
+    """Verify duplicate overlapping boxes are suppressed keeping the highest confidence."""
+    detections = [
+        {
+            "text": "OK",
+            "confidence": 0.85,
+            "center": [100, 100],
+            "bbox": [80, 90, 40, 20],
+        },
+        {
+            "text": "OK",
+            "confidence": 0.95,
+            "center": [101, 100],
+            "bbox": [80, 90, 40, 20],
+        },
+        {
+            "text": "Cancel",
+            "confidence": 0.90,
+            "center": [200, 100],
+            "bbox": [180, 90, 40, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 2
+    assert any(d["text"] == "OK" and d["confidence"] == 0.95 for d in result)
+    assert not any(d["text"] == "OK" and d["confidence"] == 0.85 for d in result)

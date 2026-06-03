@@ -146,7 +146,7 @@ def test_run_ocr_downscale_restore(
     restores original coords."""
     # Mock PIL Image
     mock_img = MagicMock()
-    mock_img.size = (1920, 1200)  # Width > 960, triggers ratio = 960.0 / 1920.0 = 0.5
+    mock_img.size = (2560, 1600)  # Width > 1280, triggers ratio = 1280.0 / 2560.0 = 0.5
 
     mock_resized_img = MagicMock()
     mock_img.resize.return_value = mock_resized_img
@@ -157,7 +157,7 @@ def test_run_ocr_downscale_restore(
     mock_np_array.return_value = sentinel_array
 
     mock_reader = MagicMock()
-    # EasyOCR results are on the resized image (W=960, H=600)
+    # EasyOCR results are on the resized image (W=1280, H=800)
     mock_reader.readtext.return_value = [
         ([[50, 100], [150, 100], [150, 150], [50, 150]], "Accelerate", 0.96)
     ]
@@ -171,7 +171,7 @@ def test_run_ocr_downscale_restore(
     # Bilinear resampling is BILINEAR
     from PIL import Image
 
-    mock_img.resize.assert_called_once_with((960, 600), Image.Resampling.BILINEAR)
+    mock_img.resize.assert_called_once_with((1280, 800), Image.Resampling.BILINEAR)
 
     # np.array should have been called with the resized PIL Image
     mock_np_array.assert_called_once_with(mock_resized_img)

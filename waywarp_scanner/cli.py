@@ -6,6 +6,7 @@ import os
 import tempfile
 import urllib.request
 import zipfile
+from typing import Any
 
 import click
 
@@ -20,13 +21,33 @@ def get_model_dir() -> str:
     return os.path.expanduser("~/.local/share/waywarp/models")
 
 
+def _ocr_worker(image_path: str, m_dir: str | None, queue: Any) -> None:
+    try:
+        from waywarp_scanner.detect import run_ocr
+
+        res = run_ocr(image_path, m_dir)
+        queue.put(("ocr", res))
+    except Exception as e:
+        queue.put(("error", f"OCR failed: {e}"))
+
+
+def _yolo_worker(image_path: str, yolo_pt: str, queue: Any) -> None:
+    try:
+        from waywarp_scanner.detect import run_yolo
+
+        res = run_yolo(image_path, yolo_pt)
+        queue.put(("yolo", res))
+    except Exception as e:
+        queue.put(("error", f"YOLO failed: {e}"))
+
+
 try:
     __version__ = importlib.metadata.version("waywarp-scanner")
 except Exception:
     try:
         __version__ = importlib.metadata.version("waywarp_scanner")
     except Exception:
-        __version__ = "0.1.6"
+        __version__ = "0.1.7"
 
 
 @click.group()
@@ -117,12 +138,46 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
 
     try:
         # Lazy imports to avoid loading torch/easyocr for non-scan commands (#39)
-        from waywarp_scanner.detect import run_ocr, run_yolo
+        # Run detection in parallel using multiprocessing to achieve <500ms target (#43)
+        import multiprocessing
+
         from waywarp_scanner.merger import merge_elements
 
-        # Run detection
-        ocr_res = run_ocr(image_path, m_dir)
-        yolo_res = run_yolo(image_path, yolo_pt)
+        # On Linux, fork is the default and is extremely fast.
+        ctx: Any
+        try:
+            ctx = multiprocessing.get_context("fork")
+        except ValueError:
+            ctx = multiprocessing.get_context()
+
+        queue = ctx.Queue()
+
+        p_ocr = ctx.Process(target=_ocr_worker, args=(image_path, m_dir, queue))
+        p_yolo = ctx.Process(target=_yolo_worker, args=(image_path, yolo_pt, queue))
+
+        p_ocr.start()
+        p_yolo.start()
+
+        ocr_res = None
+        yolo_res = None
+
+        # Expecting 2 messages
+        for _ in range(2):
+            msg_type, val = queue.get()
+            if msg_type == "ocr":
+                ocr_res = val
+            elif msg_type == "yolo":
+                yolo_res = val
+            elif msg_type == "error":
+                raise RuntimeError(val)
+
+        p_ocr.join()
+        p_yolo.join()
+
+        if ocr_res is None:
+            ocr_res = []
+        if yolo_res is None:
+            yolo_res = []
 
         # Get actual screen physical dimensions (Issue #27)
         phys_width, phys_height = 1920, 1080

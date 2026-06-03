@@ -79,11 +79,11 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
     try:
         img = Image.open(image_path)
         orig_w, orig_h = img.size
-        if orig_w > 960:
-            ratio = 960.0 / orig_w
+        if orig_w > 1280:
+            ratio = 1280.0 / orig_w
             target_h = int(orig_h * ratio)
             # Resize using BILINEAR for speed and preservation of text edge definitions
-            resized = img.resize((960, target_h), Image.Resampling.BILINEAR)
+            resized = img.resize((1280, target_h), Image.Resampling.BILINEAR)
             # Convert PIL Image to numpy array for EasyOCR compatibility (#38)
             img_input = np.array(resized)
         else:

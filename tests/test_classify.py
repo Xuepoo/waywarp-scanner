@@ -13,9 +13,9 @@ def test_classify_button_by_label() -> None:
             "bbox": [80.0, 490.0, 40.0, 20.0],
         }
         result = classify_element(elem, screen_width=1600, screen_height=1000)
-        assert result["type"] == "button", (
-            f"Expected 'button' for '{label}', got '{result['type']}'"
-        )
+        assert (
+            result["type"] == "button"
+        ), f"Expected 'button' for '{label}', got '{result['type']}'"
 
 
 def test_classify_menu_item() -> None:
@@ -28,9 +28,9 @@ def test_classify_menu_item() -> None:
             "bbox": [80.0, 15.0, 40.0, 20.0],
         }
         result = classify_element(elem, screen_width=1600, screen_height=1000)
-        assert result["type"] == "menu_item", (
-            f"Expected 'menu_item' for '{label}', got '{result['type']}'"
-        )
+        assert (
+            result["type"] == "menu_item"
+        ), f"Expected 'menu_item' for '{label}', got '{result['type']}'"
 
 
 def test_classify_menu_not_at_top() -> None:
