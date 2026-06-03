@@ -47,7 +47,7 @@ except Exception:
     try:
         __version__ = importlib.metadata.version("waywarp_scanner")
     except Exception:
-        __version__ = "0.1.7"
+        __version__ = "0.1.8"
 
 
 @click.group()
@@ -105,11 +105,197 @@ def download_models(dest: str | None) -> None:
     click.echo("All models successfully cached!")
 
 
+def get_socket_path(custom_path: str | None = None) -> str:
+    """Resolve XDG compliant path for the Unix domain socket."""
+    if custom_path:
+        return custom_path
+    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg_runtime:
+        return os.path.join(xdg_runtime, "waywarp-scanner.sock")
+    return os.path.join(tempfile.gettempdir(), "waywarp-scanner.sock")
+
+
+def _send_to_server(sock_path: str, request: dict[str, Any]) -> dict[str, Any] | None:
+    """Attempt to send a scan request to a running warm daemon server."""
+    import socket
+
+    if not os.path.exists(sock_path):
+        return None
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(10.0)  # 10s timeout for scan
+            client.connect(sock_path)
+            client.sendall(json.dumps(request).encode("utf-8"))
+
+            data = []
+            while True:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                data.append(chunk)
+            res: dict[str, Any] = json.loads(b"".join(data).decode("utf-8"))
+            return res
+    except Exception:
+        return None
+
+
+@cli.command()
+@click.option("--socket-path", type=str, help="Custom path for the Unix domain socket.")
+@click.option("--models-dir", type=click.Path(), help="Custom models directory path.")
+def serve(socket_path: str | None, models_dir: str | None) -> None:
+    """Start background daemon server to keep models warm in memory."""
+    import socket
+
+    from PIL import Image
+
+    from waywarp_scanner.detect import _get_reader, run_ocr, run_yolo
+    from waywarp_scanner.device import get_optimal_device
+    from waywarp_scanner.merger import merge_elements
+
+    m_dir = models_dir if models_dir else get_model_dir()
+    os.makedirs(m_dir, exist_ok=True)
+
+    sock_path = get_socket_path(socket_path)
+
+    if os.path.exists(sock_path):
+        try:
+            os.remove(sock_path)
+        except OSError as e:
+            click.echo(
+                json.dumps({"error": f"Failed to remove existing socket {sock_path}: {e}"}),
+                err=True,
+            )
+            click.get_current_context().exit(1)
+
+    click.echo("Pre-loading models...")
+    device = get_optimal_device()
+    gpu_enabled = device in ("cuda", "mps")
+
+    # Warm up reader cache
+    _ = _get_reader(m_dir, gpu_enabled)
+    yolo_pt = os.path.join(m_dir, "yolov8n.pt")
+
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        server.bind(sock_path)
+        os.chmod(sock_path, 0o600)
+    except Exception as e:
+        click.echo(json.dumps({"error": f"Failed to bind socket {sock_path}: {e}"}), err=True)
+        click.get_current_context().exit(1)
+
+    server.listen(5)
+    click.echo(f"Server is warm and listening on {sock_path}...")
+
+    try:
+        while True:
+            conn, _ = server.accept()
+            try:
+                req_data = conn.recv(4096)
+                if not req_data:
+                    conn.close()
+                    continue
+                req = json.loads(req_data.decode("utf-8"))
+
+                action = req.get("action")
+                if action == "scan":
+                    image_path = req.get("image_path")
+                    monitor = req.get("monitor")
+                    monitor_index = req.get("monitor_index", 0)
+
+                    if not image_path or not os.path.exists(image_path):
+                        conn.sendall(
+                            json.dumps({"error": f"Image path {image_path} does not exist"}).encode(
+                                "utf-8"
+                            )
+                        )
+                        continue
+
+                    import time
+
+                    t0 = time.time()
+                    # Run OCR
+                    ocr_res = run_ocr(image_path, m_dir)
+                    t_ocr = time.time() - t0
+
+                    # Run YOLO
+                    t1 = time.time()
+                    yolo_res = run_yolo(image_path, yolo_pt)
+                    t_yolo = time.time() - t1
+
+                    phys_width, phys_height = 1920, 1080
+                    import contextlib
+
+                    with contextlib.suppress(Exception), Image.open(image_path) as img:
+                        phys_width, phys_height = img.size
+
+                    scales = get_monitor_scales()
+                    scale_factor = 1.0
+                    if monitor is not None:
+                        scale_factor = scales.get(monitor, 1.0)
+                    elif scales:
+                        scale_factor = next(iter(scales.values()), 1.0)
+
+                    logical_width = int(phys_width / scale_factor)
+                    logical_height = int(phys_height / scale_factor)
+
+                    t2 = time.time()
+                    merged = merge_elements(
+                        yolo_res,
+                        ocr_res,
+                        scales,
+                        monitor,
+                        monitor_index=monitor_index,
+                        physical_size=(phys_width, phys_height),
+                    )
+                    t_merge = time.time() - t2
+                    total_t = time.time() - t0
+
+                    click.echo(
+                        f"Scan complete: OCR={t_ocr:.3f}s, YOLO={t_yolo:.3f}s, "
+                        f"Merge={t_merge:.3f}s, Total={total_t:.3f}s (Elements: {len(merged)})"
+                    )
+
+                    response = {
+                        "screen_width": logical_width,
+                        "screen_height": logical_height,
+                        "elements": merged,
+                    }
+                    conn.sendall(json.dumps(response).encode("utf-8"))
+                elif action == "ping":
+                    conn.sendall(json.dumps({"status": "ok"}).encode("utf-8"))
+                else:
+                    conn.sendall(json.dumps({"error": f"Unknown action: {action}"}).encode("utf-8"))
+            except Exception as e:
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    conn.sendall(
+                        json.dumps({"error": f"Internal daemon error: {e}"}).encode("utf-8")
+                    )
+            finally:
+                conn.close()
+    except KeyboardInterrupt:
+        click.echo("Server shutting down.")
+    finally:
+        server.close()
+        if os.path.exists(sock_path):
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                os.remove(sock_path)
+
+
 @cli.command()
 @click.option("--monitor", type=str, help="Bind capture to specific monitor name.")
 @click.option("--monitor-index", type=int, default=0, help="Monitor index value.")
 @click.option("--models-dir", type=click.Path(), help="Custom models directory path.")
-def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> None:
+@click.option("--socket-path", type=str, help="Custom path for the Unix domain socket.")
+def scan(
+    monitor: str | None,
+    monitor_index: int,
+    models_dir: str | None,
+    socket_path: str | None,
+) -> None:
     """Capture Wayland screen, run detection, and output structured layout JSON."""
     try:
         check_prerequisites()
@@ -129,7 +315,34 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         click.echo(json.dumps({"error": f"Failed to capture screen: {e}"}), err=True)
         click.get_current_context().exit(1)
 
-    # Check model files
+    sock_path = get_socket_path(socket_path)
+
+    # Resolve request payload
+    req = {
+        "action": "scan",
+        "image_path": image_path,
+        "monitor": monitor,
+        "monitor_index": monitor_index,
+    }
+
+    # Attempt delegation to running daemon server first
+    response = _send_to_server(sock_path, req)
+    if response is not None:
+        if "error" in response:
+            click.echo(json.dumps({"error": response["error"]}), err=True)
+            click.get_current_context().exit(1)
+
+        # Clean up screenshot safely
+        if os.path.exists(image_path):
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                os.remove(image_path)
+
+        click.echo(json.dumps(response, indent=2))
+        return
+
+    # Fallback to local cold scan execution
     yolo_pt = os.path.join(m_dir, "yolov8n.pt")
     if not os.path.exists(yolo_pt):
         err_msg = "YOLOv8 model missing. Please run `waywarp-scanner download-models` first."
@@ -137,13 +350,10 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         click.get_current_context().exit(1)
 
     try:
-        # Lazy imports to avoid loading torch/easyocr for non-scan commands (#39)
-        # Run detection in parallel using multiprocessing to achieve <500ms target (#43)
         import multiprocessing
 
         from waywarp_scanner.merger import merge_elements
 
-        # On Linux, fork is the default and is extremely fast.
         ctx: Any
         try:
             ctx = multiprocessing.get_context("fork")
@@ -161,7 +371,6 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         ocr_res = None
         yolo_res = None
 
-        # Expecting 2 messages
         for _ in range(2):
             msg_type, val = queue.get()
             if msg_type == "ocr":
@@ -179,7 +388,6 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         if yolo_res is None:
             yolo_res = []
 
-        # Get actual screen physical dimensions (Issue #27)
         phys_width, phys_height = 1920, 1080
         from PIL import Image
 
@@ -189,19 +397,16 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         except (FileNotFoundError, OSError, ValueError):
             phys_width, phys_height = 1920, 1080
 
-        # Resolve scale factor
         scales = get_monitor_scales()
         scale_factor = 1.0
         if monitor is not None:
             scale_factor = scales.get(monitor, 1.0)
         elif scales:
-            # Fallback to the scale of the first monitor found
             scale_factor = next(iter(scales.values()), 1.0)
 
         logical_width = int(phys_width / scale_factor)
         logical_height = int(phys_height / scale_factor)
 
-        # Merge
         merged = merge_elements(
             yolo_res,
             ocr_res,
@@ -211,11 +416,9 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
             physical_size=(phys_width, phys_height),
         )
 
-        # Clean up screenshot safely
         if os.path.exists(image_path):
             os.remove(image_path)
 
-        # Output JSON
         click.echo(
             json.dumps(
                 {

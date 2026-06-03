@@ -62,7 +62,7 @@ def get_monitor_scales() -> dict[str, float]:
     """
     # 1. Try running hyprctl monitors -j
     try:
-        res = subprocess.run(  # noqa: S603
+        res = subprocess.run(
             ["hyprctl", "monitors", "-j"],  # noqa: S607  # nosec B603 B607
             capture_output=True,
             text=True,
@@ -86,7 +86,7 @@ def get_monitor_scales() -> dict[str, float]:
 
     # 2. Fall back to swaymsg -t get_outputs
     try:
-        res = subprocess.run(  # noqa: S603
+        res = subprocess.run(
             ["swaymsg", "-t", "get_outputs"],  # noqa: S607  # nosec B603 B607
             capture_output=True,
             text=True,
@@ -110,7 +110,7 @@ def get_monitor_scales() -> dict[str, float]:
 
     # 3. Fall back to wlr-randr
     try:
-        res = subprocess.run(  # noqa: S603
+        res = subprocess.run(
             ["wlr-randr"],  # noqa: S607  # nosec B603 B607
             capture_output=True,
             text=True,

@@ -53,6 +53,7 @@ def test_download_models_command(
         assert mock_remove.call_count == 2
 
 
+@patch("waywarp_scanner.cli._send_to_server", return_value=None)
 @patch("waywarp_scanner.cli.check_prerequisites")
 @patch("waywarp_scanner.cli.capture_screen")
 @patch("waywarp_scanner.detect.run_ocr")
@@ -64,6 +65,7 @@ def test_scan_command_success(
     mock_ocr: MagicMock,
     mock_capture: MagicMock,
     mock_prereq: MagicMock,
+    mock_send: MagicMock,
 ) -> None:
     """Verify scan command captures screenshot, runs pipelines, and prints JSON output."""
     mock_ocr.return_value = [
@@ -116,3 +118,78 @@ def test_scan_command_prerequisite_failure(mock_prereq: MagicMock) -> None:
     data = json.loads(result.stderr)
     assert "error" in data
     assert "grim missing" in data["error"]
+
+
+@patch("waywarp_scanner.device.get_optimal_device", return_value="cpu")
+@patch("waywarp_scanner.detect._get_reader")
+@patch("waywarp_scanner.detect.run_ocr")
+@patch("waywarp_scanner.detect.run_yolo")
+@patch("waywarp_scanner.cli.get_monitor_scales", return_value={"DP-1": 1.0})
+@patch("os.chmod")
+def test_serve_command_success(
+    mock_chmod: MagicMock,
+    mock_scales: MagicMock,
+    mock_yolo: MagicMock,
+    mock_ocr: MagicMock,
+    mock_reader: MagicMock,
+    mock_device: MagicMock,
+) -> None:
+    """Verify serve command binds to socket, reads request, runs models, and responds."""
+    mock_ocr.return_value = [
+        {
+            "type": "text",
+            "text": "Hello",
+            "center": [10, 10],
+            "bbox": [5, 5, 10, 10],
+            "confidence": 0.99,
+        }
+    ]
+    mock_yolo.return_value = []
+
+    mock_conn = MagicMock()
+    mock_socket_instance = MagicMock()
+    mock_socket_instance.accept.side_effect = [(mock_conn, None), KeyboardInterrupt()]
+
+    mock_conn.recv.return_value = json.dumps(
+        {
+            "action": "scan",
+            "image_path": "/tmp/nonexistent.png",  # noqa: S108
+            "monitor": "DP-1",
+            "monitor_index": 0,
+        }
+    ).encode("utf-8")
+
+    sent_data = []
+
+    def save_sent(data: bytes) -> None:
+        sent_data.append(data)
+
+    mock_conn.sendall.side_effect = save_sent
+
+    runner = CliRunner()
+    with (
+        patch("socket.socket", return_value=mock_socket_instance),
+        patch("os.path.exists", return_value=True),
+        patch("os.remove"),
+        patch("PIL.Image.open") as mock_image_open,
+    ):
+        mock_img = MagicMock()
+        mock_img.size = (1920, 1080)
+        mock_image_open.return_value.__enter__.return_value = mock_img
+
+        result = runner.invoke(
+            cli,
+            [
+                "serve",
+                "--socket-path",
+                "/tmp/mock.sock",  # noqa: S108
+                "--models-dir",
+                "/tmp",  # noqa: S108
+            ],
+        )
+        assert "Server is warm and listening" in result.output
+        assert len(sent_data) == 1
+        res_json = json.loads(sent_data[0].decode("utf-8"))
+        assert "elements" in res_json
+        assert len(res_json["elements"]) == 1
+        assert res_json["elements"][0]["text"] == "Hello"
