@@ -294,13 +294,13 @@ def test_filter_removes_short_alpha_noise() -> None:
     detections = [
         {"text": "agy", "confidence": 0.70, "center": [453, 75], "bbox": [433, 65, 40, 20]},
         {"text": "Axo", "confidence": 0.49, "center": [912, 700], "bbox": [892, 690, 40, 20]},
-        {"text": "Fish", "confidence": 0.71, "center": [1392, 72], "bbox": [1372, 62, 40, 20]},
+        {"text": "Plex", "confidence": 0.71, "center": [1392, 72], "bbox": [1372, 62, 40, 20]},
     ]
     result = filter_noise(detections)
     # agy (0.70 < 0.75) and Axo (0.49 < 0.75) -> filtered as short alpha noise
-    # Fish has 4 chars -> not caught by short alpha filter, but conf 0.71 > 0.45 -> kept
+    # Plex has 4 chars -> not caught by short alpha filter, conf 0.71 > 0.45 -> kept
     assert len(result) == 1
-    assert result[0]["text"] == "Fish"
+    assert result[0]["text"] == "Plex"
 
 
 def test_filter_keeps_short_ui_labels() -> None:
@@ -429,3 +429,123 @@ def test_filter_removes_cli_commands() -> None:
     assert "clear" not in texts
     assert "Find" in texts
     assert "Clear" in texts
+
+
+def test_filter_removes_shell_names() -> None:
+    """Shell names like fish, bash, zsh should be filtered as code terms."""
+    detections = [
+        {"text": "fish", "confidence": 0.99, "center": [100, 100], "bbox": [80, 90, 40, 20]},
+        {"text": "bash", "confidence": 0.95, "center": [200, 100], "bbox": [180, 90, 40, 20]},
+        {"text": "zsh", "confidence": 0.90, "center": [300, 100], "bbox": [280, 90, 30, 20]},
+        {"text": "Fish", "confidence": 0.80, "center": [400, 100], "bbox": [380, 90, 40, 20]},
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0
+
+
+def test_filter_removes_dev_tool_names() -> None:
+    """Dev tool names like shellcheck, actionlint, ruff should be filtered."""
+    detections = [
+        {"text": "shellcheck", "confidence": 0.99, "center": [100, 100], "bbox": [80, 90, 80, 20]},
+        {"text": "actionlint", "confidence": 0.95, "center": [200, 100], "bbox": [180, 90, 80, 20]},
+        {"text": "ruff", "confidence": 0.90, "center": [300, 100], "bbox": [280, 90, 40, 20]},
+        {"text": "clippy", "confidence": 0.90, "center": [400, 100], "bbox": [380, 90, 50, 20]},
+        {"text": "target", "confidence": 0.99, "center": [500, 100], "bbox": [480, 90, 50, 20]},
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0
+
+
+def test_filter_removes_command_prompts() -> None:
+    """AI agent command execution prompts like Bash(git status) should be filtered."""
+    detections = [
+        {
+            "text": "Bash(git status)",
+            "confidence": 0.99,
+            "center": [100, 100],
+            "bbox": [50, 90, 140, 20],
+        },
+        {
+            "text": "Bash(cargo check)",
+            "confidence": 0.95,
+            "center": [200, 100],
+            "bbox": [150, 90, 140, 20],
+        },
+        {
+            "text": "Read(file)",
+            "confidence": 0.90,
+            "center": [300, 100],
+            "bbox": [270, 90, 60, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0
+
+
+def test_filter_removes_keyboard_shortcuts() -> None:
+    """Keyboard shortcut hints like ctrl+o, Ctrl+C should be filtered."""
+    detections = [
+        {
+            "text": "(ctrl+o t0 expand)",
+            "confidence": 0.52,
+            "center": [100, 100],
+            "bbox": [50, 90, 140, 20],
+        },
+        {
+            "text": "Press Ctrl+C to cancel",
+            "confidence": 0.85,
+            "center": [200, 100],
+            "bbox": [120, 90, 160, 20],
+        },
+        {
+            "text": "Alt+F4",
+            "confidence": 0.90,
+            "center": [300, 100],
+            "bbox": [280, 90, 50, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0
+
+
+def test_filter_removes_markdown_noise() -> None:
+    """Markdown heading fragments like 1##, ## should be filtered."""
+    detections = [
+        {"text": "1##", "confidence": 0.87, "center": [100, 100], "bbox": [80, 90, 30, 20]},
+        {"text": "##", "confidence": 0.75, "center": [200, 100], "bbox": [190, 90, 20, 20]},
+        {"text": "###", "confidence": 0.80, "center": [300, 100], "bbox": [285, 90, 30, 20]},
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0
+
+
+def test_filter_removes_numeric_alpha_noise() -> None:
+    """Mixed numeric-alpha short fragments like 31X 7, 60*, X86, 75 , should be filtered."""
+    detections = [
+        {"text": "31X 7", "confidence": 0.50, "center": [100, 100], "bbox": [80, 90, 50, 20]},
+        {"text": "60*", "confidence": 0.80, "center": [200, 100], "bbox": [190, 90, 30, 20]},
+        {"text": "X86", "confidence": 0.92, "center": [300, 100], "bbox": [285, 90, 30, 20]},
+        {"text": "75 ,", "confidence": 0.42, "center": [400, 100], "bbox": [385, 90, 30, 20]},
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0
+
+
+def test_filter_keeps_legitimate_ui_with_similar_patterns() -> None:
+    """Ensure legitimate UI text is not accidentally filtered."""
+    detections = [
+        # Normal button label
+        {"text": "Run", "confidence": 0.90, "center": [100, 100], "bbox": [80, 90, 30, 20]},
+        # Normal time display
+        {"text": "12:45", "confidence": 0.85, "center": [200, 100], "bbox": [180, 90, 40, 20]},
+        # App name with proper casing
+        {"text": "Firefox", "confidence": 0.95, "center": [300, 100], "bbox": [270, 90, 60, 20]},
+        # Multi-word UI text
+        {"text": "Sign in", "confidence": 0.88, "center": [400, 100], "bbox": [370, 90, 60, 20]},
+    ]
+    result = filter_noise(detections)
+    texts = [d["text"] for d in result]
+    assert "Run" in texts
+    assert "12:45" in texts
+    assert "Firefox" in texts
+    assert "Sign in" in texts

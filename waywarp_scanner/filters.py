@@ -25,6 +25,9 @@ _CODE_TERMS = re.compile(
     r"stderr|stdout|stdin|argv|argc|args|extract"
     r"|nil|null|void|bool|char|int|str|dict|list|tuple|vec"
     r"|fd|pid|uid|gid|eof|nul"
+    r"|fish|bash|zsh|sh|ksh|csh|tcsh"  # shell names
+    r"|shellcheck|actionlint|ruff|clippy|pytest|mypy"  # dev tool names
+    r"|target|pre|commit|bucket"  # common CI/build terms
     r")$",
     re.IGNORECASE,
 )
@@ -52,6 +55,24 @@ _CLI_COMMANDS = re.compile(
     r"(?:git|cd|ls|grep|echo|cat|cargo|python3?|pip|npm|npx|node|yarn|bun|uv|docker|podman|kubectl|systemctl|sudo|apt|pacman|yay|curl|wget|ssh|tar|zip|unzip)\b"
     r"|(?:find|clear)(?:\s+|$)"
     r")"
+)
+
+# Command execution prompts from AI agents / terminals (e.g. Bash(git status), Read(file))
+_COMMAND_PROMPT = re.compile(r"^(?:Bash|Read|Write|Run|Exec|Shell|Command)\s*\(", re.IGNORECASE)
+
+# Keyboard shortcut hints (e.g. ctrl+o, Ctrl+C, alt+f4)
+_KEYBOARD_HINT = re.compile(r"(?:ctrl|alt|shift|super|meta|cmd)[+\-]", re.IGNORECASE)
+
+# Markdown heading noise (e.g. "1##", "##", "###")
+_MARKDOWN_NOISE = re.compile(r"^\d*#{2,}$")
+
+# Mixed numeric-alpha short noise (e.g. "31X 7", "60*", "X86", "75 ,")
+_NUMERIC_ALPHA_NOISE = re.compile(
+    r"^(?:"
+    r"\d+[A-Z*]+(?:\s+\d+)?"  # e.g. 31X 7, 60*
+    r"|[A-Z]\d{2,}"  # e.g. X86
+    r"|\d+\s*[,.]\s*$"  # e.g. 75 ,
+    r")$"
 )
 
 
@@ -159,6 +180,22 @@ def filter_noise(detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         # 5f. Common CLI command-line inputs (grep waywarp, echo, etc.)
         if _CLI_COMMANDS.search(text):
+            continue
+
+        # 5g. Command execution prompts (Bash(git status), Read(file), etc.)
+        if _COMMAND_PROMPT.search(text):
+            continue
+
+        # 5h. Keyboard shortcut hints (ctrl+o, Ctrl+C, etc.)
+        if _KEYBOARD_HINT.search(text):
+            continue
+
+        # 5i. Markdown heading noise (1##, ##, ###)
+        if _MARKDOWN_NOISE.match(text):
+            continue
+
+        # 5j. Mixed numeric-alpha short fragments (31X 7, 60*, X86, 75 ,)
+        if _NUMERIC_ALPHA_NOISE.match(text):
             continue
 
         # 6. File paths and code file extensions
