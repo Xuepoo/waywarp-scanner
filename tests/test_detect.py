@@ -21,7 +21,9 @@ def test_run_ocr_cuda(mock_get_reader: MagicMock, mock_get_device: MagicMock) ->
 
     # Assert Reader retrieved with correct parameters
     mock_get_reader.assert_called_once_with("/dummy/models", True)
-    mock_reader.readtext.assert_called_once_with("dummy_path.png", batch_size=4)
+    mock_reader.readtext.assert_called_once_with(
+        "dummy_path.png", batch_size=1, canvas_size=1280, mag_ratio=1.0
+    )
 
     assert len(results) == 1
     det = results[0]
@@ -43,6 +45,9 @@ def test_run_ocr_cpu(mock_get_reader: MagicMock) -> None:
         results = run_ocr("dummy_path.png")
 
     mock_get_reader.assert_called_once_with(None, False)
+    mock_reader.readtext.assert_called_once_with(
+        "dummy_path.png", batch_size=1, canvas_size=1280, mag_ratio=1.0
+    )
     assert len(results) == 1
     assert results[0]["text"] == "OK"
     assert results[0]["bbox"] == [50.0, 60.0, 20.0, 20.0]
@@ -132,59 +137,3 @@ def test_run_yolo_coco_fallback(mock_yolo_cls: MagicMock, mock_get_device: Magic
     # Must immediately return empty list and skip predicting to fallback gracefully
     assert results == []
     assert mock_model.predict.call_count == 0
-
-
-@patch("waywarp_scanner.detect._get_reader")
-@patch("numpy.array")
-@patch("PIL.Image.open")
-def test_run_ocr_downscale_restore(
-    mock_image_open: MagicMock,
-    mock_np_array: MagicMock,
-    mock_get_reader: MagicMock,
-) -> None:
-    """Verify that run_ocr downscales high-res screenshots and correctly
-    restores original coords."""
-    # Mock PIL Image
-    mock_img = MagicMock()
-    mock_img.size = (2560, 1600)  # Width > 1280, triggers ratio = 1280.0 / 2560.0 = 0.5
-
-    mock_resized_img = MagicMock()
-    mock_img.resize.return_value = mock_resized_img
-    mock_image_open.return_value = mock_img
-
-    # np.array(resized_img) returns a sentinel numpy array
-    sentinel_array = MagicMock(name="sentinel_numpy_array")
-    mock_np_array.return_value = sentinel_array
-
-    mock_reader = MagicMock()
-    # EasyOCR results are on the resized image (W=1280, H=800)
-    mock_reader.readtext.return_value = [
-        ([[50, 100], [150, 100], [150, 150], [50, 150]], "Accelerate", 0.96)
-    ]
-    mock_get_reader.return_value = mock_reader
-
-    with patch("waywarp_scanner.device.get_optimal_device", return_value="cpu"):
-        results = run_ocr("dummy_highres.png")
-
-    # Assert PIL.Image.open and resize were called
-    mock_image_open.assert_called_once_with("dummy_highres.png")
-    # Bilinear resampling is BILINEAR
-    from PIL import Image
-
-    mock_img.resize.assert_called_once_with((1280, 800), Image.Resampling.BILINEAR)
-
-    # np.array should have been called with the resized PIL Image
-    mock_np_array.assert_called_once_with(mock_resized_img)
-
-    # EasyOCR reader should have been fed with the numpy array, not PIL Image (#38)
-    mock_reader.readtext.assert_called_once_with(sentinel_array, batch_size=4)
-
-    # Coordinates must be successfully restored back to 1920x1200 space
-    assert len(results) == 1
-    det = results[0]
-    assert det["text"] == "Accelerate"
-    # Resized bbox is [50.0, 100.0, 100.0, 50.0]
-    # Restored bbox should be [100.0, 200.0, 200.0, 100.0]
-    assert det["bbox"] == [100.0, 200.0, 200.0, 100.0]
-    # Restored center should be [200.0, 250.0]
-    assert det["center"] == [200.0, 250.0]

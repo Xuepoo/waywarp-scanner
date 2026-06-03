@@ -549,3 +549,125 @@ def test_filter_keeps_legitimate_ui_with_similar_patterns() -> None:
     assert "12:45" in texts
     assert "Firefox" in texts
     assert "Sign in" in texts
+
+
+def test_filter_removes_embedded_cli_commands() -> None:
+    """Embedded CLI commands like '66 git commit' and '0.1:1080 gh run' should be filtered."""
+    detections = [
+        {
+            "text": "66 git commit",
+            "confidence": 0.68,
+            "center": [100, 100],
+            "bbox": [50, 90, 120, 20],
+        },
+        {
+            "text": "0.1:1080 gh run",
+            "confidence": 0.57,
+            "center": [200, 100],
+            "bbox": [150, 90, 140, 20],
+        },
+        {
+            "text": "gh run list",
+            "confidence": 0.73,
+            "center": [300, 100],
+            "bbox": [260, 90, 100, 20],
+        },
+        {
+            "text": "cargo build",
+            "confidence": 0.85,
+            "center": [400, 100],
+            "bbox": [360, 90, 100, 20],
+        },
+        # These should NOT be filtered
+        {
+            "text": "add justfile",
+            "confidence": 0.96,
+            "center": [500, 100],
+            "bbox": [460, 90, 100, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    texts = [d["text"] for d in result]
+    assert "66 git commit" not in texts
+    assert "gh run list" not in texts
+    assert "cargo build" not in texts
+    assert "add justfile" in texts
+
+
+def test_filter_removes_network_noise() -> None:
+    """IP/port patterns like 0.1:1080 should be filtered but times like 12:34 should not."""
+    detections = [
+        {
+            "text": "0.1:1080",
+            "confidence": 0.69,
+            "center": [100, 100],
+            "bbox": [80, 90, 60, 20],
+        },
+        {
+            "text": "0.1*1080",
+            "confidence": 0.69,
+            "center": [200, 100],
+            "bbox": [180, 90, 60, 20],
+        },
+        {
+            "text": "127.0.0.1:8080",
+            "confidence": 0.85,
+            "center": [300, 100],
+            "bbox": [260, 90, 100, 20],
+        },
+        # Time should NOT be filtered
+        {
+            "text": "12:34",
+            "confidence": 0.90,
+            "center": [400, 100],
+            "bbox": [380, 90, 40, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    texts = [d["text"] for d in result]
+    assert "0.1:1080" not in texts
+    assert "0.1*1080" not in texts
+    assert "127.0.0.1:8080" not in texts
+    assert "12:34" in texts
+
+
+def test_filter_removes_target_triplets() -> None:
+    """Build target triplets with hyphens should be filtered."""
+    detections = [
+        {
+            "text": "unknown-Linux-musL",
+            "confidence": 0.93,
+            "center": [100, 100],
+            "bbox": [50, 90, 150, 20],
+        },
+        {
+            "text": "x86-unknown-linux",
+            "confidence": 0.80,
+            "center": [200, 100],
+            "bbox": [140, 90, 120, 20],
+        },
+        # "Windows" without hyphen should NOT be filtered
+        {
+            "text": "Windows",
+            "confidence": 0.98,
+            "center": [300, 100],
+            "bbox": [270, 90, 60, 20],
+        },
+    ]
+    result = filter_noise(detections)
+    texts = [d["text"] for d in result]
+    assert "unknown-Linux-musL" not in texts
+    assert "x86-unknown-linux" not in texts
+    assert "Windows" in texts
+
+
+def test_filter_removes_pure_numeric_strings() -> None:
+    """Pure numeric strings like 055, 618, 913, 506 should be filtered."""
+    detections = [
+        {"text": "055", "confidence": 0.60, "center": [100, 100], "bbox": [80, 90, 30, 20]},
+        {"text": "618", "confidence": 0.59, "center": [200, 100], "bbox": [180, 90, 30, 20]},
+        {"text": "913", "confidence": 1.00, "center": [300, 100], "bbox": [280, 90, 30, 20]},
+        {"text": "506", "confidence": 1.00, "center": [400, 100], "bbox": [380, 90, 30, 20]},
+    ]
+    result = filter_noise(detections)
+    assert len(result) == 0

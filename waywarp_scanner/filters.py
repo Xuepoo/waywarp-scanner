@@ -52,9 +52,17 @@ _VERSION_TYPO = re.compile(r"\b[a-zA-Z]*[oO]\.\d", re.IGNORECASE)
 # CLI command prefixes (e.g. grep, git, echo, but not standalone Clear/Find)
 _CLI_COMMANDS = re.compile(
     r"^(?:"
-    r"(?:git|cd|ls|grep|echo|cat|cargo|python3?|pip|npm|npx|node|yarn|bun|uv|docker|podman|kubectl|systemctl|sudo|apt|pacman|yay|curl|wget|ssh|tar|zip|unzip)\b"
+    r"(?:git|cd|ls|grep|echo|cat|cargo|python3?|pip|npm|npx|node|yarn|bun|uv|docker|podman|kubectl|systemctl|sudo|apt|pacman|yay|curl|wget|ssh|tar|zip|unzip|gh|make|cmake|just|nix)\b"
     r"|(?:find|clear)(?:\s+|$)"
     r")"
+)
+
+# CLI commands embedded anywhere in text (e.g. "66 git commit", "0.1:1080 gh run")
+_EMBEDDED_CLI = re.compile(
+    r"\b(?:git\s+(?:commit|push|pull|rebase|add|status|log|diff|merge|checkout|branch|clone|fetch|remote|stash|reset|tag))"
+    r"|\b(?:gh\s+(?:run|pr|issue|repo|auth|api|browse))"
+    r"|\b(?:cargo\s+(?:build|test|check|run|clippy|fmt|bench|publish))",
+    re.IGNORECASE,
 )
 
 # Command execution prompts from AI agents / terminals (e.g. Bash(git status), Read(file))
@@ -72,7 +80,21 @@ _NUMERIC_ALPHA_NOISE = re.compile(
     r"\d+[A-Z*]+(?:\s+\d+)?"  # e.g. 31X 7, 60*
     r"|[A-Z]\d{2,}"  # e.g. X86
     r"|\d+\s*[,.]\s*$"  # e.g. 75 ,
+    r"|\d+$"  # pure numeric strings like 055, 618, 913, 506
     r")$"
+)
+
+# IP addresses, ports, and network noise (e.g. "0.1:1080", "0.1*1080", "127.0.0.1:8080")
+# Must have at least one dot to distinguish from time patterns like "12:34"
+_NETWORK_NOISE = re.compile(
+    r"(?:^|\s)\d{1,3}(?:\.\d{1,3})+[*:]\d+"
+    r"|(?:^|\s)\d{1,3}[*]\d+",  # asterisk separator (e.g. 0.1*1080)
+)
+
+# Build target triplets (e.g. "unknown-Linux-musL", "x86_64-unknown-linux-gnu")
+_TARGET_TRIPLET = re.compile(
+    r"(?:unknown|linux|darwin|windows|macos|musl|gnu|msvc|freebsd|android|arm|aarch|x86|riscv)",
+    re.IGNORECASE,
 )
 
 
@@ -196,6 +218,19 @@ def filter_noise(detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         # 5j. Mixed numeric-alpha short fragments (31X 7, 60*, X86, 75 ,)
         if _NUMERIC_ALPHA_NOISE.match(text):
+            continue
+
+        # 5k. Embedded CLI commands (e.g. "66 git commit", "0.1:1080 gh run")
+        if _EMBEDDED_CLI.search(text):
+            continue
+
+        # 5l. Network/IP/port noise (e.g. "0.1:1080", "0.1*1080 gh")
+        if _NETWORK_NOISE.search(text):
+            continue
+
+        # 5m. Build target triplets (e.g. "unknown-Linux-musL")
+        # Only filter if text contains a hyphen (triplet format)
+        if "-" in text and _TARGET_TRIPLET.search(text):
             continue
 
         # 6. File paths and code file extensions
