@@ -4,6 +4,7 @@ import importlib.metadata
 import json
 import os
 import tempfile
+import time
 import urllib.request
 import zipfile
 from typing import Any
@@ -41,13 +42,27 @@ def _yolo_worker(image_path: str, yolo_pt: str, queue: Any) -> None:
         queue.put(("error", f"YOLO failed: {e}"))
 
 
+def _ocr_thread(image_path: str, m_dir: str | None, result: list[Any]) -> None:
+    """Run OCR in a thread (shares cached Reader with main process)."""
+    from waywarp_scanner.detect import run_ocr
+
+    result[0] = run_ocr(image_path, m_dir)
+
+
+def _yolo_thread(image_path: str, yolo_pt: str, result: list[Any]) -> None:
+    """Run YOLO in a thread (shares model cache with main process)."""
+    from waywarp_scanner.detect import run_yolo
+
+    result[0] = run_yolo(image_path, yolo_pt)
+
+
 try:
     __version__ = importlib.metadata.version("waywarp-scanner")
 except Exception:
     try:
         __version__ = importlib.metadata.version("waywarp_scanner")
     except Exception:
-        __version__ = "0.1.8"
+        __version__ = "0.2.0"
 
 
 @click.group()
@@ -290,13 +305,29 @@ def serve(socket_path: str | None, models_dir: str | None) -> None:
 @click.option("--monitor-index", type=int, default=0, help="Monitor index value.")
 @click.option("--models-dir", type=click.Path(), help="Custom models directory path.")
 @click.option("--socket-path", type=str, help="Custom path for the Unix domain socket.")
+@click.option(
+    "--no-serve",
+    is_flag=True,
+    default=False,
+    help="Disable auto-start of warm daemon (always cold scan).",
+)
+@click.option(
+    "--timing",
+    is_flag=True,
+    default=False,
+    help="Print timing breakdown to stderr.",
+)
 def scan(
     monitor: str | None,
     monitor_index: int,
     models_dir: str | None,
     socket_path: str | None,
+    no_serve: bool,
+    timing: bool,
 ) -> None:
     """Capture Wayland screen, run detection, and output structured layout JSON."""
+    t_total_start = time.monotonic()
+
     try:
         check_prerequisites()
     except RuntimeError as e:
@@ -309,11 +340,13 @@ def scan(
     # Standard temp image path
     image_path = os.path.join(tempfile.gettempdir(), "waywarp_scan.png")
 
+    t0 = time.monotonic()
     try:
         capture_screen(image_path, monitor)
     except Exception as e:
         click.echo(json.dumps({"error": f"Failed to capture screen: {e}"}), err=True)
         click.get_current_context().exit(1)
+    t_capture = time.monotonic() - t0
 
     sock_path = get_socket_path(socket_path)
 
@@ -339,8 +372,42 @@ def scan(
             with contextlib.suppress(OSError):
                 os.remove(image_path)
 
+        if timing:
+            t_total = time.monotonic() - t_total_start
+            click.echo(
+                f"Timing: capture={t_capture:.3f}s total={t_total:.3f}s (daemon mode)",
+                err=True,
+            )
+
         click.echo(json.dumps(response, indent=2))
         return
+
+    # No daemon running — auto-start one in background unless --no-serve
+    if not no_serve:
+        _auto_start_daemon(m_dir, sock_path, socket_path)
+        # Retry connecting to the newly started daemon
+        time.sleep(0.5)
+        response = _send_to_server(sock_path, req)
+        if response is not None:
+            if "error" in response:
+                click.echo(json.dumps({"error": response["error"]}), err=True)
+                click.get_current_context().exit(1)
+
+            if os.path.exists(image_path):
+                import contextlib
+
+                with contextlib.suppress(OSError):
+                    os.remove(image_path)
+
+            if timing:
+                t_total = time.monotonic() - t_total_start
+                click.echo(
+                    f"Timing: capture={t_capture:.3f}s total={t_total:.3f}s (auto-serve mode)",
+                    err=True,
+                )
+
+            click.echo(json.dumps(response, indent=2))
+            return
 
     # Fallback to local cold scan execution
     yolo_pt = os.path.join(m_dir, "yolov8n.pt")
@@ -350,43 +417,30 @@ def scan(
         click.get_current_context().exit(1)
 
     try:
-        import multiprocessing
+        import threading
 
         from waywarp_scanner.merger import merge_elements
 
-        ctx: Any
-        try:
-            ctx = multiprocessing.get_context("fork")
-        except ValueError:
-            ctx = multiprocessing.get_context()
+        # Use threads instead of processes — shares cached Reader/model (Issue #45/#46)
+        ocr_result: list[Any] = [[]]
+        yolo_result: list[Any] = [[]]
 
-        queue = ctx.Queue()
+        t1 = time.monotonic()
+        t_ocr = threading.Thread(target=_ocr_thread, args=(image_path, m_dir, ocr_result))
+        t_yolo = threading.Thread(target=_yolo_thread, args=(image_path, yolo_pt, yolo_result))
+        t_ocr.start()
+        t_yolo.start()
+        t_ocr.join()
+        t_yolo.join()
+        t_infer = time.monotonic() - t1
 
-        p_ocr = ctx.Process(target=_ocr_worker, args=(image_path, m_dir, queue))
-        p_yolo = ctx.Process(target=_yolo_worker, args=(image_path, yolo_pt, queue))
+        ocr_res = ocr_result[0] if ocr_result[0] else []
+        yolo_res = yolo_result[0] if yolo_result[0] else []
 
-        p_ocr.start()
-        p_yolo.start()
-
-        ocr_res = None
-        yolo_res = None
-
-        for _ in range(2):
-            msg_type, val = queue.get()
-            if msg_type == "ocr":
-                ocr_res = val
-            elif msg_type == "yolo":
-                yolo_res = val
-            elif msg_type == "error":
-                raise RuntimeError(val)
-
-        p_ocr.join()
-        p_yolo.join()
-
-        if ocr_res is None:
-            ocr_res = []
-        if yolo_res is None:
-            yolo_res = []
+        if isinstance(ocr_res, Exception):
+            raise ocr_res
+        if isinstance(yolo_res, Exception):
+            raise yolo_res
 
         phys_width, phys_height = 1920, 1080
         from PIL import Image
@@ -407,6 +461,7 @@ def scan(
         logical_width = int(phys_width / scale_factor)
         logical_height = int(phys_height / scale_factor)
 
+        t2 = time.monotonic()
         merged = merge_elements(
             yolo_res,
             ocr_res,
@@ -415,9 +470,19 @@ def scan(
             monitor_index=monitor_index,
             physical_size=(phys_width, phys_height),
         )
+        t_merge = time.monotonic() - t2
 
         if os.path.exists(image_path):
             os.remove(image_path)
+
+        t_total = time.monotonic() - t_total_start
+
+        if timing:
+            click.echo(
+                f"Timing: capture={t_capture:.3f}s inference={t_infer:.3f}s "
+                f"merge={t_merge:.3f}s total={t_total:.3f}s (cold scan)",
+                err=True,
+            )
 
         click.echo(
             json.dumps(
@@ -432,3 +497,45 @@ def scan(
     except Exception as e:
         click.echo(json.dumps({"error": f"Failed during scan: {e}"}), err=True)
         click.get_current_context().exit(1)
+
+
+def _auto_start_daemon(
+    m_dir: str, sock_path: str, custom_socket_path: str | None
+) -> None:
+    """Start the warm daemon in background if not already running."""
+    import subprocess  # nosec B404
+
+    if os.path.exists(sock_path):
+        # Check if the existing socket is alive
+        try:
+            import socket as _socket
+
+            with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as test:
+                test.settimeout(1.0)
+                test.connect(sock_path)
+                test.sendall(json.dumps({"action": "ping"}).encode("utf-8"))
+                resp = test.recv(256)
+                if b'"ok"' in resp:
+                    return  # Daemon is already running
+        except Exception:
+            # Stale socket, remove it
+            import contextlib
+
+            with contextlib.suppress(OSError):
+                os.remove(sock_path)
+
+    # Start daemon in background
+    cmd = ["waywarp-scanner", "serve", "--models-dir", m_dir]
+    if custom_socket_path:
+        cmd.extend(["--socket-path", custom_socket_path])
+
+    try:
+        subprocess.Popen(  # nosec B603
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        click.echo("Auto-started warm daemon in background.", err=True)
+    except Exception as e:
+        click.echo(f"Failed to auto-start daemon: {e}", err=True)

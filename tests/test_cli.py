@@ -94,7 +94,7 @@ def test_scan_command_success(
     ):
         result = runner.invoke(
             cli,
-            ["scan", "--monitor", "DP-1", "--monitor-index", "1", "--models-dir", "/tmp"],  # noqa: S108
+            ["scan", "--monitor", "DP-1", "--monitor-index", "1", "--models-dir", "/tmp", "--no-serve"],  # noqa: S108
         )
         assert result.exit_code == 0
 
