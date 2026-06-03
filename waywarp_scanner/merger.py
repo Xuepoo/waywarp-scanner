@@ -3,6 +3,7 @@
 from typing import Any
 
 from waywarp_scanner.capture import to_logical_coords
+from waywarp_scanner.classify import classify_element
 
 
 def merge_elements(
@@ -136,7 +137,7 @@ def merge_elements(
 
         merged_elements.append(widget_elem)
 
-    # 5. Process remaining standalone text elements
+    # 5. Process remaining standalone text elements with heuristic classification (#40)
     for idx, ocr_elem in enumerate(logical_ocr):
         if idx not in merged_ocr_indices:
             text_elem = {
@@ -148,6 +149,13 @@ def merge_elements(
             }
             if "confidence" in ocr_elem:
                 text_elem["confidence"] = ocr_elem["confidence"]
+
+            # Apply heuristic element type classification (#40)
+            text_elem = classify_element(
+                text_elem,
+                screen_width=logical_width,
+                screen_height=logical_height,
+            )
 
             merged_elements.append(text_elem)
 

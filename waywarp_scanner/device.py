@@ -1,8 +1,9 @@
-"""Device helper to determine the optimal PyTorch hardware accelerator."""
+"""Device helper to determine the optimal PyTorch hardware accelerator.
+
+Torch is lazily imported on first call to avoid top-level import overhead (#39).
+"""
 
 import os
-
-import torch
 
 
 def get_optimal_device() -> str:
@@ -14,6 +15,8 @@ def get_optimal_device() -> str:
     Returns:
         str: "cuda", "mps", or "cpu".
     """
+    import torch  # Lazy import (#39)
+
     if torch.cuda.is_available():
         return "cuda"
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():

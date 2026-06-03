@@ -55,8 +55,8 @@ def test_download_models_command(
 
 @patch("waywarp_scanner.cli.check_prerequisites")
 @patch("waywarp_scanner.cli.capture_screen")
-@patch("waywarp_scanner.cli.run_ocr")
-@patch("waywarp_scanner.cli.run_yolo")
+@patch("waywarp_scanner.detect.run_ocr")
+@patch("waywarp_scanner.detect.run_yolo")
 @patch("os.path.exists", return_value=True)
 def test_scan_command_success(
     mock_exists: MagicMock,

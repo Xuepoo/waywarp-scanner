@@ -4,7 +4,7 @@ import contextlib
 import json
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404
 
 
 def check_prerequisites() -> None:
@@ -39,7 +39,7 @@ def capture_screen(output_path: str, monitor_name: str | None = None) -> None:
 
     try:
         # grim command is safe to execute, inputs are sanitized
-        subprocess.run(  # noqa: S603
+        subprocess.run(  # noqa: S603  # nosec B603
             cmd, check=True, capture_output=True, text=True
         )
     except subprocess.CalledProcessError as e:
@@ -62,8 +62,8 @@ def get_monitor_scales() -> dict[str, float]:
     """
     # 1. Try running hyprctl monitors -j
     try:
-        res = subprocess.run(
-            ["hyprctl", "monitors", "-j"],  # noqa: S607
+        res = subprocess.run(  # noqa: S603
+            ["hyprctl", "monitors", "-j"],  # noqa: S607  # nosec B603 B607
             capture_output=True,
             text=True,
             check=True,
@@ -86,8 +86,8 @@ def get_monitor_scales() -> dict[str, float]:
 
     # 2. Fall back to swaymsg -t get_outputs
     try:
-        res = subprocess.run(
-            ["swaymsg", "-t", "get_outputs"],  # noqa: S607
+        res = subprocess.run(  # noqa: S603
+            ["swaymsg", "-t", "get_outputs"],  # noqa: S607  # nosec B603 B607
             capture_output=True,
             text=True,
             check=True,
@@ -110,8 +110,8 @@ def get_monitor_scales() -> dict[str, float]:
 
     # 3. Fall back to wlr-randr
     try:
-        res = subprocess.run(
-            ["wlr-randr"],  # noqa: S607
+        res = subprocess.run(  # noqa: S603
+            ["wlr-randr"],  # noqa: S607  # nosec B603 B607
             capture_output=True,
             text=True,
             check=True,

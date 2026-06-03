@@ -1,15 +1,46 @@
-"""Local detection engines integration for OCR (EasyOCR) and Object Detection (YOLOv8)."""
+"""Local detection engines integration for OCR (EasyOCR) and Object Detection (YOLOv8).
 
-from typing import Any
+Performance optimizations (#39):
+- All heavy imports (easyocr, torch, numpy, PIL) are lazy-loaded inside functions
+- EasyOCR Reader instances are cached per (model_dir, gpu) configuration
+- Noise filtering is applied to OCR results before returning (#41)
+"""
 
-import easyocr  # type: ignore
-import numpy as np
-from PIL import Image
+from __future__ import annotations
 
-from waywarp_scanner.device import get_optimal_device
+import re
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    pass
 
 # Lazy import placeholder for MyPy and tests patching (Issue #36)
 YOLO: Any = None
+
+# EasyOCR Reader instance cache keyed by (model_dir, gpu_enabled)
+_reader_cache: dict[tuple[str | None, bool], Any] = {}
+
+
+def _get_reader(model_dir: str | None, gpu_enabled: bool) -> Any:
+    """Get or create a cached EasyOCR Reader instance.
+
+    Caches Reader objects to avoid expensive re-initialization (~3s per call).
+
+    Args:
+        model_dir: Optional directory where EasyOCR models are stored.
+        gpu_enabled: Whether to enable GPU acceleration.
+
+    Returns:
+        An easyocr.Reader instance.
+    """
+    import easyocr  # type: ignore  # Lazy import (#39)
+
+    cache_key = (model_dir, gpu_enabled)
+    if cache_key not in _reader_cache:
+        _reader_cache[cache_key] = easyocr.Reader(
+            ["en"], gpu=gpu_enabled, model_storage_directory=model_dir
+        )
+    return _reader_cache[cache_key]
 
 
 def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any]]:
@@ -31,13 +62,17 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
             "confidence": float
         }
     """
+    from waywarp_scanner.device import get_optimal_device
+
     device = get_optimal_device()
     gpu_enabled = device in ("cuda", "mps")
 
-    reader = easyocr.Reader(["en"], gpu=gpu_enabled, model_storage_directory=model_dir)
+    reader = _get_reader(model_dir, gpu_enabled)
 
     # Perform PIL downscaling optimization for high-resolution images (Issue #32)
     # EasyOCR accepts: str (file path), bytes, or numpy.ndarray — NOT PIL Image (#38)
+    import numpy as np  # Lazy import (#39)
+    from PIL import Image  # Lazy import (#39)
 
     ratio = 1.0
     img_input: Any = image_path
@@ -58,8 +93,6 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
         img_input = image_path
 
     results = reader.readtext(img_input, batch_size=4)
-
-    import re
 
     detections = []
     for bbox, text, confidence in results:
@@ -101,7 +134,10 @@ def run_ocr(image_path: str, model_dir: str | None = None) -> list[dict[str, Any
             }
         )
 
-    return detections
+    # Apply noise filtering to remove terminal/code content (#41)
+    from waywarp_scanner.filters import filter_noise
+
+    return filter_noise(detections)
 
 
 def run_yolo(image_path: str, model_path: str) -> list[dict[str, Any]]:
@@ -138,6 +174,8 @@ def run_yolo(image_path: str, model_path: str) -> list[dict[str, Any]]:
         from ultralytics import YOLO as ULTRALYTICS_YOLO  # type: ignore
 
         YOLO = ULTRALYTICS_YOLO
+
+    from waywarp_scanner.device import get_optimal_device
 
     device = get_optimal_device()
     model = YOLO(model_path)

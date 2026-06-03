@@ -10,8 +10,6 @@ import zipfile
 import click
 
 from waywarp_scanner.capture import capture_screen, check_prerequisites, get_monitor_scales
-from waywarp_scanner.detect import run_ocr, run_yolo
-from waywarp_scanner.merger import merge_elements
 
 
 def get_model_dir() -> str:
@@ -28,7 +26,7 @@ except Exception:
     try:
         __version__ = importlib.metadata.version("waywarp_scanner")
     except Exception:
-        __version__ = "0.1.5"
+        __version__ = "0.1.6"
 
 
 @click.group()
@@ -51,7 +49,7 @@ def download_models(dest: str | None) -> None:
     craft_pth = os.path.join(model_dir, "craft_mlt_25k.pth")
     if not os.path.exists(craft_pth):
         click.echo("Downloading EasyOCR Craft Detection model...")
-        urllib.request.urlretrieve(
+        urllib.request.urlretrieve(  # nosec B310
             "https://github.com/JaidedAI/EasyOCR/releases/download/pre-v1.1.6/craft_mlt_25k.zip",
             craft_zip,
         )
@@ -65,7 +63,7 @@ def download_models(dest: str | None) -> None:
     eng_pth = os.path.join(model_dir, "english_g2.pth")
     if not os.path.exists(eng_pth):
         click.echo("Downloading EasyOCR English Recognition model...")
-        urllib.request.urlretrieve(
+        urllib.request.urlretrieve(  # nosec B310
             "https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.zip",
             eng_zip,
         )
@@ -78,7 +76,7 @@ def download_models(dest: str | None) -> None:
     yolo_pt = os.path.join(model_dir, "yolov8n.pt")
     if not os.path.exists(yolo_pt):
         click.echo("Downloading YOLOv8 widget detection model...")
-        urllib.request.urlretrieve(
+        urllib.request.urlretrieve(  # nosec B310
             "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt",
             yolo_pt,
         )
@@ -118,6 +116,10 @@ def scan(monitor: str | None, monitor_index: int, models_dir: str | None) -> Non
         click.get_current_context().exit(1)
 
     try:
+        # Lazy imports to avoid loading torch/easyocr for non-scan commands (#39)
+        from waywarp_scanner.detect import run_ocr, run_yolo
+        from waywarp_scanner.merger import merge_elements
+
         # Run detection
         ocr_res = run_ocr(image_path, m_dir)
         yolo_res = run_yolo(image_path, yolo_pt)
