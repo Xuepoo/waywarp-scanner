@@ -10,7 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Pre-install dependencies to utilize Docker cache layers
 COPY pyproject.toml README.md .
 RUN mkdir waywarp_scanner && touch waywarp_scanner/__init__.py
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir .
 
 # Copy source code and reinstall using --no-deps
 COPY . .
