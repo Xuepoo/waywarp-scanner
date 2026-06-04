@@ -7,8 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+# Pre-install dependencies to utilize Docker cache layers
+COPY pyproject.toml .
+RUN mkdir waywarp_scanner && touch waywarp_scanner/__init__.py
 RUN pip install --no-cache-dir .
+
+# Copy source code and reinstall using --no-deps
+COPY . .
+RUN pip install --no-cache-dir --no-deps .
 
 # Remove build dependencies
 RUN apt-get purge -y --auto-remove gcc
