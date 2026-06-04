@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-install dependencies to utilize Docker cache layers
-COPY pyproject.toml .
+COPY pyproject.toml README.md .
 RUN mkdir waywarp_scanner && touch waywarp_scanner/__init__.py
 RUN pip install --no-cache-dir .
 
