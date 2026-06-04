@@ -107,6 +107,8 @@ addopts = "-v --tb=short"
 [tool.coverage.run]
 source = ["waywarp_scanner"]
 branch = true
+omit = ["waywarp_scanner/__main__.py"]
+
 
 [tool.coverage.report]
 show_missing = true

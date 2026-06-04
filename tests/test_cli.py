@@ -94,7 +94,16 @@ def test_scan_command_success(
     ):
         result = runner.invoke(
             cli,
-            ["scan", "--monitor", "DP-1", "--monitor-index", "1", "--models-dir", "/tmp", "--no-serve"],  # noqa: S108
+            [
+                "scan",
+                "--monitor",
+                "DP-1",
+                "--monitor-index",
+                "1",
+                "--models-dir",
+                "/tmp",  # noqa: S108
+                "--no-serve",
+            ],
         )
         assert result.exit_code == 0
 
@@ -193,3 +202,58 @@ def test_serve_command_success(
         assert "elements" in res_json
         assert len(res_json["elements"]) == 1
         assert res_json["elements"][0]["text"] == "Hello"
+
+
+@patch("waywarp_scanner.cli._send_to_server", return_value=None)
+@patch("waywarp_scanner.cli.check_prerequisites")
+@patch("waywarp_scanner.cli.capture_screen")
+@patch("waywarp_scanner.detect.run_ocr")
+@patch("waywarp_scanner.detect.run_yolo")
+@patch("os.path.exists", return_value=True)
+@patch("subprocess.Popen")
+@patch("time.sleep")
+def test_scan_command_with_timing_and_auto_start(
+    mock_sleep: MagicMock,
+    mock_popen: MagicMock,
+    mock_exists: MagicMock,
+    mock_yolo: MagicMock,
+    mock_ocr: MagicMock,
+    mock_capture: MagicMock,
+    mock_prereq: MagicMock,
+    mock_send: MagicMock,
+) -> None:
+    """Verify scan command with --timing flag and daemon auto start."""
+    mock_ocr.return_value = []
+    mock_yolo.return_value = []
+
+    runner = CliRunner()
+    with (
+        patch("waywarp_scanner.cli.get_monitor_scales", return_value={"DP-1": 1.0}),
+        patch("os.remove"),
+        patch("PIL.Image.open") as mock_image_open,
+    ):
+        mock_img = MagicMock()
+        mock_img.size = (1920, 1080)
+        mock_image_open.return_value.__enter__.return_value = mock_img
+
+        result = runner.invoke(
+            cli,
+            [
+                "scan",
+                "--monitor",
+                "DP-1",
+                "--monitor-index",
+                "1",
+                "--models-dir",
+                "/tmp",  # noqa: S108
+                "--socket-path",
+                "/tmp/test.sock",  # noqa: S108
+                "--timing",
+            ],
+        )
+        assert result.exit_code == 0
+        mock_popen.assert_called_once()
+        # Parse output JSON (skipping click.echo stderr output)
+        json_start = result.output.find("{")
+        data = json.loads(result.output[json_start:])
+        assert "elements" in data

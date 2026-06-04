@@ -22,26 +22,6 @@ def get_model_dir() -> str:
     return os.path.expanduser("~/.local/share/waywarp/models")
 
 
-def _ocr_worker(image_path: str, m_dir: str | None, queue: Any) -> None:
-    try:
-        from waywarp_scanner.detect import run_ocr
-
-        res = run_ocr(image_path, m_dir)
-        queue.put(("ocr", res))
-    except Exception as e:
-        queue.put(("error", f"OCR failed: {e}"))
-
-
-def _yolo_worker(image_path: str, yolo_pt: str, queue: Any) -> None:
-    try:
-        from waywarp_scanner.detect import run_yolo
-
-        res = run_yolo(image_path, yolo_pt)
-        queue.put(("yolo", res))
-    except Exception as e:
-        queue.put(("error", f"YOLO failed: {e}"))
-
-
 def _ocr_thread(image_path: str, m_dir: str | None, result: list[Any]) -> None:
     """Run OCR in a thread (shares cached Reader with main process)."""
     from waywarp_scanner.detect import run_ocr
@@ -499,9 +479,7 @@ def scan(
         click.get_current_context().exit(1)
 
 
-def _auto_start_daemon(
-    m_dir: str, sock_path: str, custom_socket_path: str | None
-) -> None:
+def _auto_start_daemon(m_dir: str, sock_path: str, custom_socket_path: str | None) -> None:
     """Start the warm daemon in background if not already running."""
     import subprocess  # nosec B404
 
@@ -530,7 +508,7 @@ def _auto_start_daemon(
         cmd.extend(["--socket-path", custom_socket_path])
 
     try:
-        subprocess.Popen(  # nosec B603
+        subprocess.Popen(  # noqa: S603
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
