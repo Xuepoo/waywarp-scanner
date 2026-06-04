@@ -2,8 +2,10 @@
 
 import json
 import os
+import socket
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from waywarp_scanner.cli import cli, get_model_dir
@@ -129,6 +131,7 @@ def test_scan_command_prerequisite_failure(mock_prereq: MagicMock) -> None:
     assert "grim missing" in data["error"]
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="UNIX domain sockets not supported")
 @patch("waywarp_scanner.device.get_optimal_device", return_value="cpu")
 @patch("waywarp_scanner.detect._get_reader")
 @patch("waywarp_scanner.detect.run_ocr")
@@ -204,6 +207,7 @@ def test_serve_command_success(
         assert res_json["elements"][0]["text"] == "Hello"
 
 
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="UNIX domain sockets not supported")
 @patch("waywarp_scanner.cli._send_to_server", return_value=None)
 @patch("waywarp_scanner.cli.check_prerequisites")
 @patch("waywarp_scanner.cli.capture_screen")
